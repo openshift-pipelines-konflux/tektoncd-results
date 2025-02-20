@@ -15,6 +15,7 @@ RUN go build -ldflags="-X 'knative.dev/pkg/changeset.rev=$(cat HEAD)'" -mod=vend
 RUN /bin/sh -c 'echo $CI_RESULTS_UPSTREAM_COMMIT > /tmp/HEAD'
 
 FROM $RUNTIME
+ARG VERSION=results-next
 
 ENV WATCHER=/usr/local/bin/openshift-pipelines-results-watcher \
     KO_APP=/ko-app \
@@ -25,9 +26,9 @@ COPY --from=builder /tmp/openshift-pipelines-results-watcher ${KO_APP}/watcher
 COPY head ${KO_DATA_PATH}/HEAD
 
 LABEL \
-      com.redhat.component="openshift-pipelines-results-watcher-rhel-8-container" \
+      com.redhat.component="openshift-pipelines-results-watcher-rhel9-container" \
       name="openshift-pipelines/pipelines-results-watcher-rhel8" \
-      version="${CI_CONTAINER_VERSION}" \
+      version=$VERSION \
       summary="Red Hat OpenShift Pipelines Results Watcher" \
       maintainer="pipelines-extcomm@redhat.com" \
       description="Red Hat OpenShift Pipelines Results Watcher" \
@@ -35,8 +36,7 @@ LABEL \
       io.k8s.description="Red Hat OpenShift Pipelines Results Watcher" \
       io.k8s.display-name="Red Hat OpenShift Pipelines Results Watcher"
 
-RUN microdnf install -y shadow-utils && \
-    groupadd -r -g 65532 nonroot && useradd --no-log-init -r -u 65532 -g nonroot nonroot
+RUN groupadd -r -g 65532 nonroot && useradd --no-log-init -r -u 65532 -g nonroot nonroot
 USER 65532
 
 ENTRYPOINT ["/usr/local/bin/openshift-pipelines-results-watcher"]

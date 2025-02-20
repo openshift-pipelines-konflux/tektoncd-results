@@ -14,7 +14,7 @@ RUN go build -ldflags="-X 'knative.dev/pkg/changeset.rev=$(cat HEAD)'" -mod=vend
     ./cmd/retention-policy-agent
 
 FROM $RUNTIME
-ARG VERSION=results-main
+ARG VERSION=results-next
 
 ENV RETENTION_POLICY_AGENT=/usr/local/bin/results-retention-policy-agent \
     KO_APP=/ko-app \
@@ -35,7 +35,6 @@ LABEL \
       io.k8s.description="Red Hat OpenShift Pipelines Results retention policy agent" \
       io.openshift.tags="pipelines,tekton,openshift"
 
-RUN microdnf install -y shadow-utils
 RUN groupadd -r -g 65532 nonroot && useradd --no-log-init -r -u 65532 -g nonroot nonroot
 USER 65532
 
