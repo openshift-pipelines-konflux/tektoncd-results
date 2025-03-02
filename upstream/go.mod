@@ -1,6 +1,7 @@
 module github.com/tektoncd/results
 
-go 1.22.3
+go 1.22.7
+
 toolchain go1.23.5
 
 require (
@@ -42,9 +43,9 @@ require (
 	google.golang.org/grpc v1.70.0
 	google.golang.org/protobuf v1.36.5
 	gorm.io/driver/mysql v1.5.1
-	gorm.io/driver/postgres v1.5.2
+	gorm.io/driver/postgres v1.5.11
 	gorm.io/driver/sqlite v1.5.7
-	gorm.io/gorm v1.25.7-0.20240204074919-46816ad31dde
+	gorm.io/gorm v1.25.10
 	k8s.io/api v0.29.13
 	k8s.io/apimachinery v0.29.13
 	k8s.io/apiserver v0.29.13
