@@ -1,5 +1,5 @@
-ARG GO_BUILDER=brew.registry.redhat.io/rh-osbs/openshift-golang-builder:v1.23
-ARG RUNTIME=registry.access.redhat.com/ubi9/ubi-minimal:latest@sha256:bafd57451de2daa71ed301b277d49bd120b474ed438367f087eac0b885a668dc
+ARG GO_BUILDER=brew.registry.redhat.io/rh-osbs/openshift-golang-builder:v1.22
+ARG RUNTIME=registry.redhat.io/ubi8/ubi:latest@sha256:8bd1b6306f8164de7fb0974031a0f903bd3ab3e6bcab835854d3d9a1a74ea5db
 
 FROM $GO_BUILDER AS builder
 
@@ -15,7 +15,7 @@ RUN go build -ldflags="-X 'knative.dev/pkg/changeset.rev=$(cat HEAD)'" -mod=vend
 RUN /bin/sh -c 'echo $CI_RESULTS_UPSTREAM_COMMIT > /tmp/HEAD'
 
 FROM $RUNTIME
-ARG VERSION=results-next
+ARG VERSION=results-1.17
 
 ENV WATCHER=/usr/local/bin/openshift-pipelines-results-watcher \
     KO_APP=/ko-app \
@@ -26,7 +26,7 @@ COPY --from=builder /tmp/openshift-pipelines-results-watcher ${KO_APP}/watcher
 COPY head ${KO_DATA_PATH}/HEAD
 
 LABEL \
-      com.redhat.component="openshift-pipelines-results-watcher-rhel9-container" \
+      com.redhat.component="openshift-pipelines-results-watcher-rhel8-container" \
       name="openshift-pipelines/pipelines-results-watcher-rhel8" \
       version=$VERSION \
       summary="Red Hat OpenShift Pipelines Results Watcher" \
