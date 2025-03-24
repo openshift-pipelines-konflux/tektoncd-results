@@ -10,16 +10,16 @@ metadata:
     build.appstudio.redhat.com/target_branch: '{{target_branch}}'
     pipelinesascode.tekton.dev/max-keep-runs: "3"
     pipelinesascode.tekton.dev/on-cel-expression: event == "push" && target_branch
-      == "release-v1.17.x" &&
+      == "release-v1.15.x" &&
       ("upstream/***".pathChanged() || ".konflux/patches/***".pathChanged() || ".konflux/rpms/***".pathChanged() ||
-      ".konflux/dockerfiles/watcher.Dockerfile".pathChanged() ||
-      ".tekton/tektoncd-results-1-17-watcher-push.yaml".pathChanged())
+      ".konflux/dockerfiles/retention-policy-agent.Dockerfile".pathChanged() ||
+      ".tekton/tektoncd-results-1-15-retention-policy-agent-push.yaml".pathChanged())
   creationTimestamp: null
   labels:
-    appstudio.openshift.io/application: openshift-pipelines-1-17
-    appstudio.openshift.io/component: tektoncd-results-1-17-watcher
+    appstudio.openshift.io/application: openshift-pipelines-1-15
+    appstudio.openshift.io/component: tektoncd-results-1-15-retention-policy-agent
     pipelines.appstudio.openshift.io/type: build
-  name: tektoncd-results-1-17-watcher-on-push
+  name: tektoncd-results-1-15-retention-policy-agent-on-push
   namespace: tekton-ecosystem-tenant
 spec:
   params:
@@ -28,9 +28,9 @@ spec:
   - name: revision
     value: '{{revision}}'
   - name: output-image
-    value: quay.io/redhat-user-workloads/tekton-ecosystem-tenant/1-17/results-watcher-rhel8:{{revision}}
+    value: quay.io/redhat-user-workloads/tekton-ecosystem-tenant/1-15/results-retention-policy-agent-rhel8:{{revision}}
   - name: dockerfile
-    value: .konflux/dockerfiles/watcher.Dockerfile
+    value: .konflux/dockerfiles/retention-policy-agent.Dockerfile
   - name: prefetch-input
     value: |
       {"type": "rpm", "path": ".konflux/rpms"}
