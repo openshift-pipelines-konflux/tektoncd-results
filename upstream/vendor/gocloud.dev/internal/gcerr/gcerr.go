@@ -17,7 +17,6 @@ package gcerr
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"reflect"
@@ -141,17 +140,20 @@ func Newf(c ErrorCode, err error, format string, args ...interface{}) *Error {
 // It returns true if err is a retry error, a context error, io.EOF, or if it wraps
 // one of those.
 func DoNotWrap(err error) bool {
-	if errors.Is(err, io.EOF) {
+	if xerrors.Is(err, io.EOF) {
 		return true
 	}
-	if errors.Is(err, context.Canceled) {
+	if xerrors.Is(err, context.Canceled) {
 		return true
 	}
-	if errors.Is(err, context.DeadlineExceeded) {
+	if xerrors.Is(err, context.DeadlineExceeded) {
 		return true
 	}
 	var r *retry.ContextError
-	return errors.As(err, &r)
+	if xerrors.As(err, &r) {
+		return true
+	}
+	return false
 }
 
 // GRPCCode extracts the gRPC status code and converts it into an ErrorCode.

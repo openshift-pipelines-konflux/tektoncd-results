@@ -33,7 +33,7 @@ function check_go_lint() {
     header "Testing if golint has been done"
 
     # deadline of 5m, and show all the issues
-    GOFLAGS="-mod=mod" make golangci-lint-check
+    golangci-lint -j 1 --color=never run
 
     if [[ $? != 0 ]]; then
         results_banner "Go Lint" 1

@@ -19,7 +19,6 @@ package main
 import (
 	"context"
 	"crypto/tls"
-	"database/sql"
 	"fmt"
 	"net/http"
 	"path"
@@ -27,7 +26,6 @@ import (
 	"time"
 
 	"github.com/tektoncd/results/pkg/api/server/v1alpha2/auth/impersonation"
-	"github.com/tektoncd/results/pkg/converter"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
 	"google.golang.org/grpc/codes"
@@ -39,8 +37,6 @@ import (
 
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
-
-	_ "net/http/pprof"
 
 	"github.com/golang-jwt/jwt/v4"
 	grpc_middleware "github.com/grpc-ecosystem/go-grpc-middleware"
@@ -57,7 +53,6 @@ import (
 	v1alpha2 "github.com/tektoncd/results/pkg/api/server/v1alpha2"
 	"github.com/tektoncd/results/pkg/api/server/v1alpha2/auth"
 	v1alpha2pb "github.com/tektoncd/results/proto/v1alpha2/results_go_proto"
-	v1alpha3pb "github.com/tektoncd/results/proto/v1alpha3/results_go_proto"
 	_ "go.uber.org/automaxprocs"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -110,7 +105,7 @@ func main() {
 		gormConfig.Logger = gormlogger.Default.LogMode(gormlogger.Silent)
 	}
 	// Retry database connection, sometimes the database is not ready to accept connection
-	err = wait.PollImmediate(10*time.Second, 2*time.Minute, func() (bool, error) { //nolint:staticcheck
+	err = wait.PollImmediate(10*time.Second, 2*time.Minute, func() (bool, error) {
 		db, err = gorm.Open(postgres.Open(dbURI), gormConfig)
 		if err != nil {
 			log.Warnf("Error connecting to database (retrying in 10s): %v", err)
@@ -120,41 +115,6 @@ func main() {
 	})
 	if err != nil {
 		log.Fatalf("Failed to connect to database: %v", err)
-	}
-
-	var sqlDB *sql.DB
-
-	// Set DB connection limits
-	maxIdle := serverConfig.DB_MAX_IDLE_CONNECTIONS
-	maxOpen := serverConfig.DB_MAX_OPEN_CONNECTIONS
-	if maxOpen > 0 {
-		sqlDB, err = db.DB()
-		if err != nil {
-			log.Fatalf("Error getting database configuration for updating max open connections: %s", err.Error())
-		}
-		sqlDB.SetMaxOpenConns(maxOpen)
-	}
-	if maxIdle > 0 {
-		sqlDB, err = db.DB()
-		if err != nil {
-			log.Fatalf("Error getting database configuration for updating max open connections: %s", err.Error())
-		}
-		sqlDB.SetMaxIdleConns(maxIdle)
-	}
-
-	if serverConfig.CONVERTER_ENABLE {
-		log.Info("Starting api converter")
-		go func() {
-			conv := converter.New(log, db, serverConfig.CONVERTER_DB_LIMIT)
-			conv.Start(context.Background())
-		}()
-	}
-
-	// Set grpc worker pool
-	grpcWorkers := serverConfig.GRPC_WORKER_POOL
-	var streamWorkers grpc.ServerOption
-	if grpcWorkers > 2 {
-		streamWorkers = grpc.NumStreamWorkers((uint32)(grpcWorkers))
 	}
 
 	// Create the authorization authCheck
@@ -169,15 +129,6 @@ func main() {
 		k8sConfig, err := rest.InClusterConfig()
 		if err != nil {
 			log.Fatal("Error getting kubernetes client config:", err)
-		}
-		// Override k8s client qps/burts settings
-		qps := serverConfig.K8S_QPS
-		burst := serverConfig.K8S_BURST
-		if qps > 0 {
-			k8sConfig.QPS = (float32)(qps)
-		}
-		if burst > 0 {
-			k8sConfig.Burst = burst
 		}
 		k8s, err := kubernetes.NewForConfig(k8sConfig)
 		if err != nil {
@@ -199,7 +150,7 @@ func main() {
 
 	// Shared options for the logger, with a custom gRPC code to log level function.
 	zapOpts := []grpc_zap.Option{
-		grpc_zap.WithDecider(func(fullMethodName string, _ error) bool {
+		grpc_zap.WithDecider(func(fullMethodName string, err error) bool {
 			return fullMethodName != healthpb.Health_Check_FullMethodName
 		}),
 		grpc_zap.WithDurationField(func(duration time.Duration) zapcore.Field {
@@ -210,7 +161,7 @@ func main() {
 	// Customize logger, so it can be passed to the gRPC interceptors
 	grpcLogger := log.Desugar().With(zap.Bool("grpc.auth_disabled", serverConfig.AUTH_DISABLE))
 
-	svrOpts := []grpc.ServerOption{
+	gs := grpc.NewServer(
 		grpc.Creds(creds),
 		grpc_middleware.WithUnaryServerChain(
 			// The grpc_ctxtags context updater should be before everything else
@@ -228,42 +179,21 @@ func main() {
 			prometheus.StreamServerInterceptor,
 			recovery.StreamServerInterceptor(recovery.WithRecoveryHandler(recoveryHandler)),
 		),
-	}
-	if streamWorkers != nil {
-		svrOpts = append(svrOpts, streamWorkers)
-	}
-	gs := grpc.NewServer(svrOpts...)
+	)
 	v1alpha2pb.RegisterResultsServer(gs, v1a2)
-	if serverConfig.LOGS_API && !v1a2.LogPluginServer.IsLogPluginEnabled {
-		log.Info("Registering gRPC Log server endpoints for Logs v1alpha2 API")
+	if serverConfig.LOGS_API {
 		v1alpha2pb.RegisterLogsServer(gs, v1a2)
-	} else if serverConfig.LOGS_API && v1a2.LogPluginServer.IsLogPluginEnabled {
-		log.Info("Registering gRPC server endpoints for Logs v1alpha3 API")
-		v1alpha3pb.RegisterLogsServer(gs, v1a2.LogPluginServer)
 	}
 
 	// Allow service reflection - required for grpc_cli ls to work.
 	reflection.Register(gs)
 
-	// Enable profiling server
-	if serverConfig.PROFILING {
-		go func() {
-			log.Infof("Profiling server listening on: %s", serverConfig.PROFILING_PORT)
-			if err := http.ListenAndServe(":"+serverConfig.PROFILING_PORT, nil); err != nil {
-				log.Fatalf("Error running Profiling server: %v", err)
-			}
-		}()
-	}
-
 	// Set up health checks.
 	hs := health.NewServer()
 	hs.SetServingStatus("tekton.results.v1alpha2.Results", healthpb.HealthCheckResponse_SERVING)
-	if serverConfig.LOGS_API && !v1a2.LogPluginServer.IsLogPluginEnabled {
+	if serverConfig.LOGS_API {
 		hs.SetServingStatus("tekton.results.v1alpha2.Logs", healthpb.HealthCheckResponse_SERVING)
-	} else if serverConfig.LOGS_API && v1a2.LogPluginServer.IsLogPluginEnabled {
-		hs.SetServingStatus("tekton.results.v1alpha3.Logs", healthpb.HealthCheckResponse_SERVING)
 	}
-
 	healthpb.RegisterHealthServer(gs, hs)
 
 	// Start prometheus metrics server
@@ -287,7 +217,7 @@ func main() {
 	}
 
 	// Setup gRPC gateway to proxy request to gRPC health checks
-	clientConn, err := grpc.Dial(":"+serverConfig.SERVER_PORT, grpc.WithTransportCredentials(creds), grpc.WithNoProxy()) //nolint:staticcheck
+	clientConn, err := grpc.Dial(":"+serverConfig.SERVER_PORT, grpc.WithTransportCredentials(creds), grpc.WithNoProxy())
 	if err != nil {
 		log.Fatalf("Error dialing gRPC endpoint: %v", err)
 	}
@@ -297,8 +227,7 @@ func main() {
 	ctx := context.Background()
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	var httpMux http.Handler
-	httpMux = runtime.NewServeMux(serverMuxOptions...)
+	httpMux := runtime.NewServeMux(serverMuxOptions...)
 	opts := []grpc.DialOption{
 		grpc.WithTransportCredentials(creds),
 		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(100 * 1024 * 1024)),
@@ -306,20 +235,17 @@ func main() {
 	}
 
 	// Register gRPC server endpoint to gRPC gateway
-	err = v1alpha2pb.RegisterResultsHandlerFromEndpoint(ctx, httpMux.(*runtime.ServeMux), ":"+serverConfig.SERVER_PORT, opts)
+	err = v1alpha2pb.RegisterResultsHandlerFromEndpoint(ctx, httpMux, ":"+serverConfig.SERVER_PORT, opts)
 	if err != nil {
 		log.Fatal("Error registering gRPC server endpoint for Results API: ", err)
 	}
 
-	if serverConfig.LOGS_API && !v1a2.LogPluginServer.IsLogPluginEnabled {
-		log.Info("Registering server endpoints for Logs v1alpha2 API")
-		err = v1alpha2pb.RegisterLogsHandlerFromEndpoint(ctx, httpMux.(*runtime.ServeMux), ":"+serverConfig.SERVER_PORT, opts)
+	if serverConfig.LOGS_API {
+		err = v1alpha2pb.RegisterLogsHandlerFromEndpoint(ctx, httpMux, ":"+serverConfig.SERVER_PORT, opts)
 		if err != nil {
-			log.Fatal("Error registering gRPC server endpoints for Logs v1alpha2 API: ", err)
+			log.Fatal("Error registering gRPC server endpoints for Logs API: ", err)
 		}
 	}
-
-	httpMux = v1alpha2.Handler(httpMux, v1a2.LogPluginServer)
 
 	// Start server with gRPC and REST handler
 	log.Infof("gRPC and REST server listening on: %s", serverConfig.SERVER_PORT)

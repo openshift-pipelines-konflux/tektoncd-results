@@ -22,6 +22,7 @@ package test
 import (
 	"context"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"testing"
 
@@ -52,7 +53,7 @@ func CreateGCPServiceAccountSecret(t *testing.T, c kubernetes.Interface, namespa
 		},
 	}
 
-	bs, err := os.ReadFile(file)
+	bs, err := ioutil.ReadFile(file)
 	if err != nil {
 		return false, fmt.Errorf("couldn't read secret json from %s: %w", file, err)
 	}

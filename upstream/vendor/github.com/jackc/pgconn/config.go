@@ -297,7 +297,6 @@ func ParseConfigWithOptions(connString string, options ParseConfigOptions) (*Con
 		"sslcert":              {},
 		"sslrootcert":          {},
 		"sslpassword":          {},
-		"sslsni":               {},
 		"krbspn":               {},
 		"krbsrvname":           {},
 		"target_session_attrs": {},
@@ -366,9 +365,9 @@ func ParseConfigWithOptions(connString string, options ParseConfigOptions) (*Con
 	config.TLSConfig = fallbacks[0].TLSConfig
 	config.Fallbacks = fallbacks[1:]
 
-	if config.Password == "" {
-		passfile, err := pgpassfile.ReadPassfile(settings["passfile"])
-		if err == nil {
+	passfile, err := pgpassfile.ReadPassfile(settings["passfile"])
+	if err == nil {
+		if config.Password == "" {
 			host := config.Host
 			if network, _ := NetworkAddress(config.Host, config.Port); network == "unix" {
 				host = "localhost"
@@ -425,7 +424,6 @@ func parseEnvSettings() map[string]string {
 		"PGSSLMODE":            "sslmode",
 		"PGSSLKEY":             "sslkey",
 		"PGSSLCERT":            "sslcert",
-		"PGSSLSNI":             "sslsni",
 		"PGSSLROOTCERT":        "sslrootcert",
 		"PGSSLPASSWORD":        "sslpassword",
 		"PGTARGETSESSIONATTRS": "target_session_attrs",
@@ -621,14 +619,10 @@ func configTLS(settings map[string]string, thisHost string, parseConfigOptions P
 	sslcert := settings["sslcert"]
 	sslkey := settings["sslkey"]
 	sslpassword := settings["sslpassword"]
-	sslsni := settings["sslsni"]
 
 	// Match libpq default behavior
 	if sslmode == "" {
 		sslmode = "prefer"
-	}
-	if sslsni == "" {
-		sslsni = "1"
 	}
 
 	tlsConfig := &tls.Config{}
@@ -760,13 +754,6 @@ func configTLS(settings map[string]string, thisHost string, parseConfigOptions P
 			return nil, fmt.Errorf("unable to load cert: %w", err)
 		}
 		tlsConfig.Certificates = []tls.Certificate{cert}
-	}
-
-	// Set Server Name Indication (SNI), if enabled by connection parameters.
-	// Per RFC 6066, do not set it if the host is a literal IP address (IPv4
-	// or IPv6).
-	if sslsni == "1" && net.ParseIP(host) == nil {
-		tlsConfig.ServerName = host
 	}
 
 	switch sslmode {
