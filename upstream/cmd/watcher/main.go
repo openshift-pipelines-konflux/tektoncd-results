@@ -40,7 +40,6 @@ import (
 	"google.golang.org/grpc/credentials/oauth"
 	corev1 "k8s.io/api/core/v1"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
-	"k8s.io/client-go/rest"
 	"k8s.io/client-go/transport"
 	"knative.dev/pkg/configmap"
 	"knative.dev/pkg/controller"
@@ -63,21 +62,11 @@ var (
 	authToken               = flag.String("token", "", "Authentication token to use in requests. If not specified, on-cluster configuration is assumed.")
 	completedRunGracePeriod = flag.Duration("completed_run_grace_period", 0, "Grace period duration before Runs should be deleted. If 0, Runs will not be deleted. If < 0, Runs will be deleted immediately.")
 	threadiness             = flag.Int("threadiness", controller.DefaultThreadsPerController, "Number of threads (Go routines) allocated to each controller")
-	qps                     = flag.Float64("qps", float64(rest.DefaultQPS), "Kubernetes client QPS setting")
-	burst                   = flag.Int("burst", rest.DefaultBurst, "Kubernetes client Burst setting")
-	logsAPI                 = flag.Bool("logs_api", false, "Disable sending logs. If not set, the logs will be sent only if server support API for it")
-	logsTimestamps          = flag.Bool("logs_timestamps", false, "Collect logs with timestamps")
+	logsAPI                 = flag.Bool("logs_api", true, "Disable sending logs. If not set, the logs will be sent only if server support API for it")
 	labelSelector           = flag.String("label_selector", "", "Selector (label query) to filter objects to be deleted. Matching objects must satisfy all labels requirements to be eligible for deletion")
 	requeueInterval         = flag.Duration("requeue_interval", 10*time.Minute, "How long the Watcher waits to reprocess keys on certain events (e.g. an object doesn't match the provided selectors)")
 	namespace               = flag.String("namespace", corev1.NamespaceAll, "Should the Watcher only watch a single namespace, then this value needs to be set to the namespace name otherwise leave it empty.")
-	summaryLabels           = flag.String("summary_labels", "tekton.dev/pipeline", "List of Labels keys separated by comma which should be part of the summary of the result")
-	summaryAnnotations      = flag.String("summary_annotations", "", "List of Annotations keys separated by comma which should be part of the summary of the result")
 	checkOwner              = flag.Bool("check_owner", true, "If enabled, owner references will be checked while deleting objects")
-	updateLogTimeout        = flag.Duration("update_log_timeout", 300*time.Second, "How log the Watcher waits for the UpdateLog operation for storing logs to complete before it aborts.")
-	dynamicReconcileTimeout = flag.Duration("dynamic_reconcile_timeout", 30*time.Second, "How long the Watcher waits for the dynamic reconciler to complete before it aborts.")
-	storeEvent              = flag.Bool("store_event", false, "If enabled, events related to runs will also be stored")
-	storeDeadline           = flag.Duration("store_deadline", 10*time.Minute, "How long to wait for storing the PipelineRun and TaskRun resources before aborting and clearing the finalizer in case of delete event")
-	forwardBuffer           = flag.Duration("forward_buffer", 150*time.Second, "This determines duration since completion time of TaskRun to wait for forwarder to finish")
 )
 
 func main() {
@@ -103,8 +92,6 @@ func main() {
 			log.Printf("Unable to inject logs client, logs will not be stored: %v", err)
 			*logsAPI = false
 		}
-	} else {
-		log.Printf("logs disable in watcher")
 	}
 
 	cfg := &reconciler.Config{
@@ -112,17 +99,7 @@ func main() {
 		CompletedResourceGracePeriod: *completedRunGracePeriod,
 		RequeueInterval:              *requeueInterval,
 		CheckOwner:                   *checkOwner,
-		UpdateLogTimeout:             updateLogTimeout,
-		DynamicReconcileTimeout:      dynamicReconcileTimeout,
-		StoreEvent:                   *storeEvent,
-		StoreDeadline:                storeDeadline,
-		ForwardBuffer:                forwardBuffer,
-		LogsTimestamps:               *logsTimestamps,
-		SummaryLabels:                *summaryLabels,
-		SummaryAnnotations:           *summaryAnnotations,
 	}
-
-	log.Printf("dynamic reconcile timeout %s and update log timeout is %s", cfg.DynamicReconcileTimeout.String(), cfg.UpdateLogTimeout.String())
 
 	if selector := *labelSelector; selector != "" {
 		if err := cfg.SetLabelSelector(selector); err != nil {
@@ -130,25 +107,12 @@ func main() {
 		}
 	}
 
-	ctors := []injection.ControllerConstructor{
+	sharedmain.MainWithContext(injection.WithNamespaceScope(ctx, *namespace), "watcher",
 		func(ctx context.Context, cmw configmap.Watcher) *controller.Impl {
 			return pipelinerun.NewControllerWithConfig(ctx, results, cfg, cmw)
 		}, func(ctx context.Context, cmw configmap.Watcher) *controller.Impl {
 			return taskrun.NewControllerWithConfig(ctx, results, cfg, cmw)
 		},
-	}
-
-	// This parses flags.
-	k8scfg := injection.ParseAndGetRESTConfigOrDie()
-
-	if qps != nil {
-		k8scfg.QPS = float32(*qps) * float32(len(ctors))
-	}
-	if burst != nil {
-		k8scfg.Burst = *burst * len(ctors)
-	}
-
-	sharedmain.MainWithConfig(injection.WithNamespaceScope(ctx, *namespace), "watcher", k8scfg, ctors...,
 	)
 }
 

@@ -34,8 +34,6 @@ const (
 )
 
 // NewResultsClient creates new gRPC Results client for testing purpose
-//
-//nolint:staticcheck
 func NewResultsClient(t *testing.T, config *config.Config, opts ...server.Option) (pb.ResultsClient, pb.LogsClient) {
 	t.Helper()
 	config.DB_ENABLE_AUTO_MIGRATION = true
