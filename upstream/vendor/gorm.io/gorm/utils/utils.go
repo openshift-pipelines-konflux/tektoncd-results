@@ -35,8 +35,7 @@ func FileWithLineNum() string {
 	// the second caller usually from gorm internal, so set i start from 2
 	for i := 2; i < 15; i++ {
 		_, file, line, ok := runtime.Caller(i)
-		if ok && (!strings.HasPrefix(file, gormSourceDir) || strings.HasSuffix(file, "_test.go")) &&
-			!strings.HasSuffix(file, ".gen.go") {
+		if ok && (!strings.HasPrefix(file, gormSourceDir) || strings.HasSuffix(file, "_test.go")) {
 			return file + ":" + strconv.FormatInt(int64(line), 10)
 		}
 	}
@@ -90,28 +89,19 @@ func Contains(elems []string, elem string) bool {
 	return false
 }
 
-func AssertEqual(x, y interface{}) bool {
-	if reflect.DeepEqual(x, y) {
-		return true
-	}
-	if x == nil || y == nil {
-		return false
-	}
+func AssertEqual(src, dst interface{}) bool {
+	if !reflect.DeepEqual(src, dst) {
+		if valuer, ok := src.(driver.Valuer); ok {
+			src, _ = valuer.Value()
+		}
 
-	xval := reflect.ValueOf(x)
-	yval := reflect.ValueOf(y)
-	if xval.Kind() == reflect.Ptr && xval.IsNil() ||
-		yval.Kind() == reflect.Ptr && yval.IsNil() {
-		return false
-	}
+		if valuer, ok := dst.(driver.Valuer); ok {
+			dst, _ = valuer.Value()
+		}
 
-	if valuer, ok := x.(driver.Valuer); ok {
-		x, _ = valuer.Value()
+		return reflect.DeepEqual(src, dst)
 	}
-	if valuer, ok := y.(driver.Valuer); ok {
-		y, _ = valuer.Value()
-	}
-	return reflect.DeepEqual(x, y)
+	return true
 }
 
 func ToString(value interface{}) string {

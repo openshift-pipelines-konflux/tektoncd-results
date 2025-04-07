@@ -19,7 +19,7 @@ package testing
 import (
 	"context"
 	"fmt"
-	"os"
+	"io/ioutil"
 	"testing"
 
 	"github.com/tektoncd/pipeline/pkg/apis/config"
@@ -32,7 +32,7 @@ import (
 func ConfigMapFromTestFile(t *testing.T, name string) *corev1.ConfigMap {
 	t.Helper()
 
-	b, err := os.ReadFile(fmt.Sprintf("testdata/%s.yaml", name))
+	b, err := ioutil.ReadFile(fmt.Sprintf("testdata/%s.yaml", name))
 	if err != nil {
 		t.Fatalf("ReadFile() = %v", err)
 	}
@@ -50,7 +50,6 @@ func ConfigMapFromTestFile(t *testing.T, name string) *corev1.ConfigMap {
 
 // EnableFeatureFlagField enables a boolean feature flag in an existing context (for use in testing).
 func EnableFeatureFlagField(ctx context.Context, t *testing.T, flagName string) context.Context {
-	t.Helper()
 	featureFlags, err := config.NewFeatureFlagsFromMap(map[string]string{
 		flagName: "true",
 	})
