@@ -16,7 +16,7 @@ metadata:
       ".tekton/tektoncd-results-1-14-api-push.yaml".pathChanged())
   creationTimestamp: null
   labels:
-    appstudio.openshift.io/application: openshift-pipelines-1-14
+    appstudio.openshift.io/application: openshift-pipelines-core-1-14
     appstudio.openshift.io/component: tektoncd-results-1-14-api
     pipelines.appstudio.openshift.io/type: build
   name: tektoncd-results-1-14-api-on-push
