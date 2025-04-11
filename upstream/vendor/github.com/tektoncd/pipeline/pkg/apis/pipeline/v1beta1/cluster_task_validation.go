@@ -19,6 +19,7 @@ package v1beta1
 import (
 	"context"
 
+	"github.com/tektoncd/pipeline/pkg/apis/config"
 	"github.com/tektoncd/pipeline/pkg/apis/validate"
 	"knative.dev/pkg/apis"
 )
@@ -31,8 +32,6 @@ func (t *ClusterTask) Validate(ctx context.Context) *apis.FieldError {
 		return nil
 	}
 	errs := validate.ObjectMetadata(t.GetObjectMeta()).ViaField("metadata")
-	errs = errs.Also(t.Spec.Validate(apis.WithinSpec(ctx)).ViaField("spec"))
-	// We do not support propagated parameters in ClusterTasks.
-	// Validate that all params the ClusterTask uses are declared.
-	return errs.Also(ValidateUsageOfDeclaredParameters(ctx, t.Spec.Steps, t.Spec.Params))
+	ctx = config.SkipValidationDueToPropagatedParametersAndWorkspaces(ctx, false)
+	return errs.Also(t.Spec.Validate(apis.WithinSpec(ctx)).ViaField("spec"))
 }

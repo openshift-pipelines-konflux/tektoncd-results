@@ -37,7 +37,8 @@ type Interface interface {
 	TektonV1() tektonv1.TektonV1Interface
 }
 
-// Clientset contains the clients for groups.
+// Clientset contains the clients for groups. Each group has exactly one
+// version included in a Clientset.
 type Clientset struct {
 	*discovery.DiscoveryClient
 	tektonV1alpha1 *tektonv1alpha1.TektonV1alpha1Client

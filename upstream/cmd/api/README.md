@@ -29,7 +29,6 @@
 | LOGS_TYPE                | Determine Logs storage backend type                                                                                               | File (default)                                                                               |
 | LOGS_BUFFER_SIZE         | Buffer for streaming logs                                                                                                         | 32768 (default)                                                                              |
 | LOGS_PATH                | Logs storage path                                                                                                                 | logs (default)                                                                               |
-| LOGS_TIMESTAMPS          | Collect logs with timestamps                                                                                                      | false (default)                                                                              |
 | S3_BUCKET_NAME           | S3 Bucket name                                                                                                                    | <S3 Bucket Name>                                                                             |
 | S3_ENDPOINT              | S3 Endpoint                                                                                                                       | https://s3.ap-south-1.amazonaws.com                                                          |
 | S3_HOSTNAME_IMMUTABLE    | S3 Hostname immutable                                                                                                             | false (default)                                                                              |
@@ -39,8 +38,6 @@
 | S3_MULTI_PART_SIZE       | S3 Multi part size                                                                                                                | 5242880 (default)                                                                            |
 | GCS_BUCKET_NAME          | GCS Bucket Name                                                                                                                   | <GCS Bucket Name>                                                                            |
 | STORAGE_EMULATOR_HOST    | GCS Storage Emulator Server                                                                                                       | http://localhost:9004                                                                        |
-| CONVERTER_ENABLE         | Whether to start converter of v1beta1 TaskRun/PipelineRun records to v1                                                           | true                                                                                         |
-| CONVERTER_DB_LIMIT       | How many records to convert at a time in a transaction                                                                            | 50                                                                                           |
 
 These values can also be set in the config file located in the `config/env/config` directory.
 

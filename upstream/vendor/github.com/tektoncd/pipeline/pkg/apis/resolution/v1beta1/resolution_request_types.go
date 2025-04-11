@@ -17,7 +17,7 @@ limitations under the License.
 package v1beta1
 
 import (
-	pipelinev1 "github.com/tektoncd/pipeline/pkg/apis/pipeline/v1"
+	pipelinev1beta1 "github.com/tektoncd/pipeline/pkg/apis/pipeline/v1beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	duckv1 "knative.dev/pkg/apis/duck/v1"
 )
@@ -63,14 +63,7 @@ type ResolutionRequestSpec struct {
 	// path to file, the kind of authentication to leverage, etc.
 	// +optional
 	// +listType=atomic
-	Params []pipelinev1.Param `json:"params,omitempty"`
-	// URL is the runtime url passed to the resolver
-	// to help it figure out how to resolver the resource being
-	// requested.
-	// This is currently at an ALPHA stability level and subject to
-	// alpha API compatibility policies.
-	// +optional
-	URL string `json:"url,omitempty"`
+	Params []pipelinev1beta1.Param `json:"params,omitempty"`
 }
 
 // ResolutionRequestStatus are all the fields in a ResolutionRequest's
@@ -87,12 +80,9 @@ type ResolutionRequestStatusFields struct {
 	// of the requested resource in-lined into the ResolutionRequest
 	// object.
 	Data string `json:"data"`
-	// Deprecated: Use RefSource instead
-	Source *pipelinev1.RefSource `json:"source"`
-
-	// RefSource is the source reference of the remote data that records the url, digest
+	// Source is the source reference of the remote data that records the url, digest
 	// and the entrypoint.
-	RefSource *pipelinev1.RefSource `json:"refSource"`
+	Source *pipelinev1beta1.ConfigSource `json:"source"`
 }
 
 // GetStatus implements KRShaped.

@@ -17,10 +17,10 @@ package dynamic
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
+	"os"
+	"runtime/pprof"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/fatih/color"
@@ -28,7 +28,7 @@ import (
 	"github.com/tektoncd/cli/pkg/cli"
 	tknlog "github.com/tektoncd/cli/pkg/log"
 	tknopts "github.com/tektoncd/cli/pkg/options"
-	pipelinev1 "github.com/tektoncd/pipeline/pkg/apis/pipeline/v1"
+	pipelinev1beta1 "github.com/tektoncd/pipeline/pkg/apis/pipeline/v1beta1"
 	"github.com/tektoncd/results/pkg/api/server/v1alpha2/log"
 	"github.com/tektoncd/results/pkg/api/server/v1alpha2/record"
 	"github.com/tektoncd/results/pkg/api/server/v1alpha2/result"
@@ -39,12 +39,12 @@ import (
 	"github.com/tektoncd/results/pkg/watcher/results"
 	pb "github.com/tektoncd/results/proto/v1alpha2/results_go_proto"
 	"go.uber.org/zap"
-	v1 "k8s.io/api/core/v1"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/kubernetes"
 	"knative.dev/pkg/apis"
 	"knative.dev/pkg/controller"
 	"knative.dev/pkg/logging"
@@ -57,9 +57,6 @@ var (
 // Reconciler implements common reconciler behavior across different Tekton Run
 // Object types.
 type Reconciler struct {
-	// KubeClientSet allows us to talk to the k8s for core APIs
-	KubeClientSet kubernetes.Interface
-
 	resultsClient          *results.Client
 	objectClient           ObjectClient
 	cfg                    *reconciler.Config
@@ -85,10 +82,9 @@ type IsReadyForDeletion func(ctx context.Context, object results.Object) (bool, 
 type AfterDeletion func(ctx context.Context, object results.Object) error
 
 // NewDynamicReconciler creates a new dynamic Reconciler.
-func NewDynamicReconciler(kubeClientSet kubernetes.Interface, rc pb.ResultsClient, lc pb.LogsClient, oc ObjectClient, cfg *reconciler.Config) *Reconciler {
+func NewDynamicReconciler(rc pb.ResultsClient, lc pb.LogsClient, oc ObjectClient, cfg *reconciler.Config) *Reconciler {
 	return &Reconciler{
-		resultsClient: results.NewClient(rc, lc, cfg),
-		KubeClientSet: kubeClientSet,
+		resultsClient: results.NewClient(rc, lc),
 		objectClient:  oc,
 		cfg:           cfg,
 		// Always true predicate.
@@ -98,12 +94,35 @@ func NewDynamicReconciler(kubeClientSet kubernetes.Interface, rc pb.ResultsClien
 	}
 }
 
+func printGoroutines(logger *zap.SugaredLogger, o results.Object) {
+	// manual testing has confirmed you don't have to explicitly enable pprof to get goroutine dumps with
+	// stack traces; this lines up with the stack traces you receive if a panic occurs, as well as the
+	// stack trace you receive if you send a SIGQUIT and/or SIGABRT to a running go program
+	profile := pprof.Lookup("goroutine")
+	if profile == nil {
+		logger.Warnw("Leaving dynamic Reconciler only after context timeout, number of profiles found",
+			zap.String("namespace", o.GetNamespace()),
+			zap.String("kind", o.GetObjectKind().GroupVersionKind().Kind),
+			zap.String("name", o.GetName()))
+	} else {
+		err := profile.WriteTo(os.Stdout, 2)
+		if err != nil {
+			logger.Errorw("problem writing goroutine dump",
+				zap.String("error", err.Error()),
+				zap.String("namespace", o.GetNamespace()),
+				zap.String("kind", o.GetObjectKind().GroupVersionKind().Kind),
+				zap.String("name", o.GetName()))
+		}
+	}
+
+}
+
 // Reconcile handles result/record uploading for the given Run object.
 // If enabled, the object may be deleted upon successful result upload.
 func (r *Reconciler) Reconcile(ctx context.Context, o results.Object) error {
 	var ctxCancel context.CancelFunc
 	// context with timeout does not work with the partial end to end flow that exists with unit tests;
-	// this field will always be set for real
+	// this field will alway be set for real
 	if r.cfg != nil && r.cfg.UpdateLogTimeout != nil {
 		ctx, ctxCancel = context.WithTimeout(ctx, *r.cfg.UpdateLogTimeout)
 	}
@@ -131,10 +150,11 @@ func (r *Reconciler) Reconcile(ctx context.Context, o results.Object) error {
 			return
 		}
 		if ctxErr == context.DeadlineExceeded {
-			logger.Warnw("Leaving dynamic Reconciler only after context timeout",
+			logger.Warnw("Leaving dynamic Reconciler only after context timeout, initiating thread dump",
 				zap.String("namespace", o.GetNamespace()),
 				zap.String("kind", o.GetObjectKind().GroupVersionKind().Kind),
 				zap.String("name", o.GetName()))
+			printGoroutines(logger, o)
 			return
 		}
 		logger.Warnw("Leaving dynamic Reconciler with unexpected error",
@@ -163,6 +183,10 @@ func (r *Reconciler) Reconcile(ctx context.Context, o results.Object) error {
 
 	if err != nil {
 		logger.Debugw("Error upserting record to API server", zap.Error(err), timeTakenField)
+		// in case a call to cancel overwrites the error set in the context
+		if status.Code(err) == codes.DeadlineExceeded {
+			printGoroutines(logger, o)
+		}
 		if ctxCancel != nil {
 			ctxCancel()
 		}
@@ -171,89 +195,24 @@ func (r *Reconciler) Reconcile(ctx context.Context, o results.Object) error {
 
 	// Update logs if enabled.
 	if r.resultsClient.LogsClient != nil {
-		if r.cfg == nil || r.cfg.UpdateLogTimeout == nil {
-			// single threaded for unit tests given fragility of fake k8s client
-			if err = r.sendLog(ctx, o); err != nil {
-				logger.Errorw("Error sending log",
-					zap.String("namespace", o.GetNamespace()),
-					zap.String("kind", o.GetObjectKind().GroupVersionKind().Kind),
-					zap.String("name", o.GetName()),
-					zap.Error(err),
-				)
-			}
-
-		} else {
-			// so while performance was acceptable with development level storage mechanisms like minio, latency proved
-			// intolerable for even basic amounts of log storage; moving off of the reconciler thread again, and
-			// completely divesting from its context, now using the background context and a separate timer to provide
-			// for timeout capability
-			go func() {
-				// TODO need to leverage the log status API noting log storage completion to coordinate with pruning
-				backgroundCtx, cancel := context.WithCancel(context.Background())
-				// need this to get grpc to clean up its threads
-				defer cancel()
-				timeout := 30 * time.Second
-				// context with timeout does not work with the partial end to end flow that exists with unit tests;
-				// this field will always be set for real
-				if r.cfg != nil && r.cfg.DynamicReconcileTimeout != nil {
-					// given what we have seen in stress testing, we track this timeout separately from the reconciler's timeout
-					timeout = *r.cfg.DynamicReconcileTimeout
-				}
-				eventTicker := time.NewTicker(timeout)
-				// make buffered for golang GC
-				stopCh := make(chan bool, 1)
-				once := sync.Once{}
-
-				go func() {
-					if err = r.sendLog(backgroundCtx, o); err != nil {
-						logger.Errorw("Error sending log",
-							zap.String("namespace", o.GetNamespace()),
-							zap.String("kind", o.GetObjectKind().GroupVersionKind().Kind),
-							zap.String("name", o.GetName()),
-							zap.Error(err),
-						)
-					}
-					once.Do(func() { close(stopCh) })
-					// TODO once we have the log status available, report the error there for retry if needed
-				}()
-
-				select {
-				case <-eventTicker.C:
-					once.Do(func() { close(stopCh) })
-					logger.Warnw("Leaving sendLogs thread only after timeout",
-						zap.String("namespace", o.GetNamespace()),
-						zap.String("kind", o.GetObjectKind().GroupVersionKind().Kind),
-						zap.String("name", o.GetName()))
-
-				case <-stopCh:
-					// this is safe to call twice, as it does not need to close its buffered channel
-					eventTicker.Stop()
-				}
-			}()
-
-		}
-	}
-
-	// CreateEvents if enabled
-	if r.cfg.StoreEvent {
-		if err := r.storeEvents(ctx, o); err != nil {
-			logger.Errorw("Error storing eventlist",
+		if err = r.sendLog(ctx, o); err != nil {
+			logger.Errorw("Error sending log",
 				zap.String("namespace", o.GetNamespace()),
 				zap.String("kind", o.GetObjectKind().GroupVersionKind().Kind),
 				zap.String("name", o.GetName()),
 				zap.Error(err),
 			)
+			// in case a call to cancel overwrites the error set in the context
+			if status.Code(err) == codes.DeadlineExceeded {
+				printGoroutines(logger, o)
+			}
 			if ctxCancel != nil {
 				ctxCancel()
 			}
 			return err
 		}
-		logger.Debugw("Successfully store eventlist",
-			zap.String("namespace", o.GetNamespace()),
-			zap.String("kind", o.GetObjectKind().GroupVersionKind().Kind),
-			zap.String("name", o.GetName()),
-		)
 	}
+
 	logger = logger.With(zap.String("results.tekton.dev/result", res.Name),
 		zap.String("results.tekton.dev/record", rec.Name))
 	logger.Debugw("Record has been successfully upserted into API server", timeTakenField)
@@ -276,9 +235,9 @@ func (r *Reconciler) Reconcile(ctx context.Context, o results.Object) error {
 		return err
 	}
 	if ctxCancel != nil {
-		defer ctxCancel()
+		ctxCancel()
 	}
-	return r.addStoredAnnotations(logging.WithLogger(ctx, logger), o)
+	return nil
 }
 
 // addResultsAnnotations adds Results annotations to the object in question if
@@ -403,12 +362,12 @@ func getCompletionTime(object results.Object) (*time.Time, error) {
 
 	switch o := object.(type) {
 
-	case *pipelinev1.PipelineRun:
+	case *pipelinev1beta1.PipelineRun:
 		if o.Status.CompletionTime != nil {
 			completionTime = &o.Status.CompletionTime.Time
 		}
 
-	case *pipelinev1.TaskRun:
+	case *pipelinev1beta1.TaskRun:
 		if o.Status.CompletionTime != nil {
 			completionTime = &o.Status.CompletionTime.Time
 		}
@@ -483,9 +442,8 @@ func (r *Reconciler) sendLog(ctx context.Context, o results.Object) error {
 				zap.String("name", o.GetName()),
 				zap.Error(err),
 			)
-			// TODO once we have the log status available, report the error there for retry if needed
 		}
-		logger.Infow("Streaming log completed",
+		logger.Debugw("Streaming log completed",
 			zap.String("namespace", o.GetNamespace()),
 			zap.String("kind", o.GetObjectKind().GroupVersionKind().Kind),
 			zap.String("name", o.GetName()),
@@ -520,7 +478,6 @@ func (r *Reconciler) streamLogs(ctx context.Context, o results.Object, logType, 
 		Params:          tknParams,
 		PipelineRunName: o.GetName(),
 		TaskrunName:     o.GetName(),
-		Timestamps:      r.cfg.LogsTimestamps,
 		Stream: &cli.Stream{
 			Out: inMemWriteBufferStdout,
 			Err: inMemWriteBufferStderr,
@@ -576,7 +533,10 @@ func (r *Reconciler) streamLogs(ctx context.Context, o results.Object, logType, 
 			zap.String("errStr", errStr))
 	}
 
-	_, flushErr := writer.Flush()
+	flushCount, flushErr := writer.Flush()
+	logger.Warnw("flush ret count",
+		zap.String("name", o.GetName()),
+		zap.Int("flushCount", flushCount))
 	if flushErr != nil {
 		logger.Warnw("flush ret err",
 			zap.String("error", flushErr.Error()))
@@ -610,171 +570,5 @@ func (r *Reconciler) streamLogs(ctx context.Context, o results.Object, logType, 
 		zap.String("name", o.GetName()),
 	)
 
-	return nil
-}
-
-// storeEvents streams logs to the API server
-func (r *Reconciler) storeEvents(ctx context.Context, o results.Object) error {
-	logger := logging.FromContext(ctx)
-	condition := o.GetStatusCondition().GetCondition(apis.ConditionSucceeded)
-	GVK := o.GetObjectKind().GroupVersionKind()
-	if !GVK.Empty() &&
-		(GVK.Kind == "TaskRun" || GVK.Kind == "PipelineRun") &&
-		condition != nil &&
-		!condition.IsUnknown() {
-
-		rec, err := r.resultsClient.GetEventListRecord(ctx, o)
-		if err != nil {
-			return err
-		}
-
-		if rec != nil {
-			// It means we have already stored events
-			eventListName := rec.GetName()
-			// Update Events annotation if it doesn't exist
-			return r.addResultsAnnotations(ctx, o, annotation.Annotation{Name: annotation.EventList, Value: eventListName})
-		}
-
-		events, err := r.KubeClientSet.CoreV1().Events(o.GetNamespace()).List(ctx, metav1.ListOptions{
-			FieldSelector: "involvedObject.uid=" + string(o.GetUID()),
-		})
-		if err != nil {
-			logger.Errorf("Failed to store events - retrieve",
-				zap.String("namespace", o.GetNamespace()),
-				zap.String("kind", o.GetObjectKind().GroupVersionKind().Kind),
-				zap.String("name", o.GetName()),
-				zap.String("err", err.Error()),
-			)
-			return err
-		}
-
-		tr, ok := o.(*pipelinev1.TaskRun)
-
-		if ok {
-			podName := tr.Status.PodName
-			podEvents, err := r.KubeClientSet.CoreV1().Events(o.GetNamespace()).List(ctx, metav1.ListOptions{
-				FieldSelector: "involvedObject.name=" + podName,
-			})
-			if err != nil {
-				logger.Errorf("Failed to fetch taskrun pod events",
-					zap.String("namespace", o.GetNamespace()),
-					zap.String("kind", o.GetObjectKind().GroupVersionKind().Kind),
-					zap.String("name", o.GetName()),
-					zap.String("podname", podName),
-					zap.String("err", err.Error()),
-				)
-			}
-			if podEvents != nil && len(podEvents.Items) > 0 {
-				events.Items = append(events.Items, podEvents.Items...)
-			}
-
-		}
-
-		data := filterEventList(events)
-		eventList, err := json.Marshal(data)
-		if err != nil {
-			logger.Errorf("Failed to store events - marshal",
-				zap.String("namespace", o.GetNamespace()),
-				zap.String("kind", o.GetObjectKind().GroupVersionKind().Kind),
-				zap.String("name", o.GetName()),
-				zap.String("err", err.Error()),
-			)
-			return err
-		}
-
-		rec, err = r.resultsClient.PutEventList(ctx, o, eventList)
-		if err != nil {
-			return err
-		}
-
-		if err := r.addResultsAnnotations(ctx, o, annotation.Annotation{Name: annotation.EventList, Value: rec.GetName()}); err != nil {
-			return err
-		}
-
-	}
-
-	return nil
-}
-
-func filterEventList(events *v1.EventList) *v1.EventList {
-	if events == nil || len(events.Items) == 0 {
-		return events
-	}
-
-	for i, event := range events.Items {
-		// Only taking Name, Namespace and CreationTimeStamp for ObjectMeta
-		events.Items[i].ObjectMeta = metav1.ObjectMeta{
-			Name:              event.Name,
-			Namespace:         event.Namespace,
-			CreationTimestamp: event.CreationTimestamp,
-		}
-	}
-
-	return events
-}
-
-// addStoreAnnotations adds store annotations to the object in question if
-// annotation patching is enabled.
-func (r *Reconciler) addStoredAnnotations(ctx context.Context, o results.Object) error {
-	logger := logging.FromContext(ctx)
-
-	if r.resultsClient.LogsClient != nil {
-		return nil
-	}
-
-	if r.cfg.GetCompletedResourceGracePeriod() != 0*time.Second {
-		logger.Debugf("Skipping CRD annotation patch: CompletedResourceGracePeriod is disabled ObjectName: %s", o.GetName())
-		return nil
-	}
-	if r.cfg.GetDisableAnnotationUpdate() { //nolint:gocritic
-		logger.Debug("Skipping CRD annotation patch: annotation update is disabled")
-		return nil
-	}
-
-	stored := annotation.Annotation{Name: annotation.Stored, Value: "false"}
-	GVK := o.GetObjectKind().GroupVersionKind()
-
-	if GVK.Empty() {
-		logger.Debugf("Skipping CRD annotation patch: ObjectKind is empty ObjectName: %s", o.GetName())
-		return nil
-	}
-
-	// Checking if the object operation by other controllers is done
-	switch GVK.Kind {
-	case "TaskRun":
-		taskRun, ok := o.(*pipelinev1.TaskRun)
-		if !ok {
-			return fmt.Errorf("failed to cast object to TaskRun")
-		}
-		if taskRun.IsDone() {
-			stored = annotation.Annotation{Name: annotation.Stored, Value: "true"}
-		}
-	case "PipelineRun":
-		pipelineRun, ok := o.(*pipelinev1.PipelineRun)
-		if !ok {
-			return fmt.Errorf("failed to cast object to PipelineRun")
-		}
-		if pipelineRun.IsDone() {
-			stored = annotation.Annotation{Name: annotation.Stored, Value: "true"}
-		}
-	default:
-		return nil
-	}
-
-	if annotation.IsPatched(o, stored) {
-		logger.Debugf("Skipping CRD annotation patch: Result Stored annotations are already set ObjectName: %s", o.GetName())
-		return nil
-	}
-
-	// Update object with Result Stored annotations.
-	patch, err := annotation.Patch(o, stored)
-	if err != nil {
-		logger.Errorf("error adding stored annotations: %w ObjectName: %s", err, o.GetName())
-		return fmt.Errorf("error adding stored annotations: %w ObjectName: %s", err, o.GetName())
-	}
-	if err := r.objectClient.Patch(ctx, o.GetName(), types.MergePatchType, patch, metav1.PatchOptions{}); err != nil {
-		logger.Errorf("error patching object with stored annotation: %w ObjectName: %s", err, o.GetName())
-		return fmt.Errorf("error patching object with stored annotation: %w ObjectName: %s", err, o.GetName())
-	}
 	return nil
 }

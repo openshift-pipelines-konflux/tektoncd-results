@@ -3,7 +3,7 @@ package dynamic
 import (
 	"context"
 
-	pipelinev1 "github.com/tektoncd/pipeline/pkg/client/clientset/versioned/typed/pipeline/v1"
+	"github.com/tektoncd/pipeline/pkg/client/clientset/versioned/typed/pipeline/v1beta1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 )
@@ -18,7 +18,7 @@ type ObjectClient interface {
 
 // TaskRunClient implements the dynamic ObjectClient for TaskRuns.
 type TaskRunClient struct {
-	pipelinev1.TaskRunInterface
+	v1beta1.TaskRunInterface
 }
 
 // Patch patches TaskRun k8s resource
@@ -29,7 +29,7 @@ func (c *TaskRunClient) Patch(ctx context.Context, name string, pt types.PatchTy
 
 // PipelineRunClient implements the dynamic ObjectClient for TaskRuns.
 type PipelineRunClient struct {
-	pipelinev1.PipelineRunInterface
+	v1beta1.PipelineRunInterface
 }
 
 // Patch patches pipelineRun Kubernetes resource.

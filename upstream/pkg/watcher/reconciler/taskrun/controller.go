@@ -23,12 +23,11 @@ import (
 	"knative.dev/pkg/configmap"
 
 	pipelineclient "github.com/tektoncd/pipeline/pkg/client/injection/client"
-	taskruninformer "github.com/tektoncd/pipeline/pkg/client/injection/informers/pipeline/v1/taskrun"
-	taskrunreconciler "github.com/tektoncd/pipeline/pkg/client/injection/reconciler/pipeline/v1/taskrun"
+	taskruninformer "github.com/tektoncd/pipeline/pkg/client/injection/informers/pipeline/v1beta1/taskrun"
 	"github.com/tektoncd/results/pkg/watcher/reconciler"
+	"github.com/tektoncd/results/pkg/watcher/reconciler/leaderelection"
 	pb "github.com/tektoncd/results/proto/v1alpha2/results_go_proto"
 	"k8s.io/client-go/tools/cache"
-	kubeclient "knative.dev/pkg/client/injection/kube/client"
 	"knative.dev/pkg/controller"
 	"knative.dev/pkg/logging"
 )
@@ -47,32 +46,25 @@ func NewControllerWithConfig(ctx context.Context, resultsClient pb.ResultsClient
 	configStore.WatchConfigs(cmw)
 
 	c := &Reconciler{
-		kubeClientSet:  kubeclient.Get(ctx),
-		resultsClient:  resultsClient,
-		logsClient:     logs.Get(ctx),
-		lister:         lister,
-		pipelineClient: pipelineclient.Get(ctx),
-		cfg:            cfg,
-		configStore:    configStore,
-		metrics:        taskrunmetrics.NewRecorder(),
+		LeaderAwareFuncs: leaderelection.NewLeaderAwareFuncs(lister.List),
+		resultsClient:    resultsClient,
+		logsClient:       logs.Get(ctx),
+		lister:           lister,
+		pipelineClient:   pipelineclient.Get(ctx),
+		cfg:              cfg,
+		configStore:      configStore,
+		metrics:          taskrunmetrics.NewRecorder(),
 	}
 
-	impl := taskrunreconciler.NewImpl(ctx, c, func(_ *controller.Impl) controller.Options {
-		return controller.Options{
-			// This results pipelinerun reconciler shouldn't mutate the pipelinerun's status.
-			SkipStatusUpdates: true,
-			ConfigStore:       configStore,
-			FinalizerName:     "results.tekton.dev/taskrun",
-		}
+	impl := controller.NewContext(ctx, c, controller.ControllerOptions{
+		Logger:        logging.FromContext(ctx),
+		WorkQueueName: "TaskRuns",
 	})
 
-	_, err := informer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+	informer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc:    impl.Enqueue,
 		UpdateFunc: controller.PassNew(impl.Enqueue),
 	})
-	if err != nil {
-		logger.Panicf("Couldn't register TaskRun informer event handler: %w", err)
-	}
 
 	return impl
 }
