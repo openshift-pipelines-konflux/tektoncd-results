@@ -3,14 +3,12 @@ package flags
 import (
 	"github.com/spf13/cobra"
 	pb "github.com/tektoncd/results/proto/v1alpha2/results_go_proto"
-	pb3 "github.com/tektoncd/results/proto/v1alpha3/results_go_proto"
 )
 
 // Params contains a ResultsClient and LogsClient
 type Params struct {
-	ResultsClient    pb.ResultsClient
-	LogsClient       pb.LogsClient
-	PluginLogsClient pb3.LogsClient
+	ResultsClient pb.ResultsClient
+	LogsClient    pb.LogsClient
 }
 
 // ListOptions is used on commands that list Results, Records or Logs

@@ -17,20 +17,9 @@ limitations under the License.
 package common
 
 import (
-	"context"
 	"errors"
 	"fmt"
-	"slices"
-	"strings"
-
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 )
-
-// This error is defined in etcd at
-// https://github.com/etcd-io/etcd/blob/5b226e0abf4100253c94bb71f47d6815877ed5a2/server/etcdserver/errors.go#L30
-// TODO: If/when https://github.com/kubernetes/kubernetes/issues/106491 is addressed,
-// we should stop relying on a hardcoded string.
-var errEtcdLeaderChange = "etcdserver: leader changed"
 
 // Error embeds both a short machine-readable string reason for resolution
 // problems alongside the original error generated during the resolution flow.
@@ -62,102 +51,77 @@ func NewError(reason string, err error) *Error {
 }
 
 var (
-	// ErrRequestInProgress is a sentinel value to indicate that
+	// ErrorRequestInProgress is a sentinel value to indicate that
 	// a resource request is still in progress.
-	ErrRequestInProgress = NewError("RequestInProgress", errors.New("Resource request is still in-progress"))
-
-	// ErrorRequestInProgress is an alias to ErrRequestInProgress
-	//
-	// Deprecated: use ErrRequestInProgress instead.
-	ErrorRequestInProgress = ErrRequestInProgress
+	ErrorRequestInProgress = NewError("RequestInProgress", errors.New("Resource request is still in-progress"))
 )
 
-// InvalidResourceKeyError indicates that a string key given to the
+// ErrorInvalidResourceKey indicates that a string key given to the
 // Reconcile function does not match the expected "name" or "namespace/name"
 // format.
-type InvalidResourceKeyError struct {
+type ErrorInvalidResourceKey struct {
 	Key      string
 	Original error
 }
 
-// ErrorInvalidResourceKey is an alias to type InvalidResourceKeyError.
-//
-// Deprecated: use type InvalidResourceKeyError instead.
-type ErrorInvalidResourceKey = InvalidResourceKeyError
+var _ error = &ErrorInvalidResourceKey{}
 
-var _ error = &InvalidResourceKeyError{}
-
-func (e *InvalidResourceKeyError) Error() string {
+func (e *ErrorInvalidResourceKey) Error() string {
 	return fmt.Sprintf("invalid resource key %q: %v", e.Key, e.Original)
 }
 
-func (e *InvalidResourceKeyError) Unwrap() error {
+func (e *ErrorInvalidResourceKey) Unwrap() error {
 	return e.Original
 }
 
-// InvalidRequestError is an error received when a
+// ErrorInvalidRequest is an error received when a
 // resource request is badly formed for some reason: either the
 // parameters don't match the resolver's expectations or there is some
 // other structural issue.
-type InvalidRequestError struct {
+type ErrorInvalidRequest struct {
 	ResolutionRequestKey string
 	Message              string
 }
 
-// ErrorInvalidRequest is an alias to type InvalidRequestError.
-//
-// Deprecated: use type InvalidRequestError instead.
-type ErrorInvalidRequest = InvalidRequestError
+var _ error = &ErrorInvalidRequest{}
 
-var _ error = &InvalidRequestError{}
-
-func (e *InvalidRequestError) Error() string {
+func (e *ErrorInvalidRequest) Error() string {
 	return fmt.Sprintf("invalid resource request %q: %s", e.ResolutionRequestKey, e.Message)
 }
 
-// GetResourceError is an error received during what should
+// ErrorGettingResource is an error received during what should
 // otherwise have been a successful resource request.
-type GetResourceError struct {
+type ErrorGettingResource struct {
 	ResolverName string
 	Key          string
 	Original     error
 }
 
-// ErrorGettingResource is an alias to type GetResourceError.
-//
-// Deprecated: use type GetResourceError instead.
-type ErrorGettingResource = GetResourceError
+var _ error = &ErrorGettingResource{}
 
-var _ error = &GetResourceError{}
-
-func (e *GetResourceError) Error() string {
+func (e *ErrorGettingResource) Error() string {
 	return fmt.Sprintf("error getting %q %q: %v", e.ResolverName, e.Key, e.Original)
 }
 
-func (e *GetResourceError) Unwrap() error {
+func (e *ErrorGettingResource) Unwrap() error {
 	return e.Original
 }
 
-// UpdatingRequestError is an error during any part of the update
+// ErrorUpdatingRequest is an error during any part of the update
 // process for a ResolutionRequest, e.g. when attempting to patch the
 // ResolutionRequest with resolved data.
-type UpdatingRequestError struct {
+type ErrorUpdatingRequest struct {
 	ResolutionRequestKey string
 	Original             error
 }
 
-// ErrorUpdatingRequest is an alias to UpdatingRequestError
-//
-// Deprecated: use UpdatingRequestError instead.
-type ErrorUpdatingRequest = UpdatingRequestError
+var _ error = &ErrorUpdatingRequest{}
 
-var _ error = &UpdatingRequestError{}
-
-func (e *UpdatingRequestError) Error() string {
+func (e *ErrorUpdatingRequest) Error() string {
 	return fmt.Sprintf("error updating resource request %q with data: %v", e.ResolutionRequestKey, e.Original)
 }
 
-func (e *UpdatingRequestError) Unwrap() error {
+func (e *ErrorUpdatingRequest) Unwrap() error {
 	return e.Original
 }
 
@@ -168,27 +132,10 @@ func ReasonError(err error) (string, error) {
 	reason := ReasonResolutionFailed
 	resolutionError := err
 
-	var e *Error
-	if errors.As(err, &e) {
+	if e, ok := err.(*Error); ok {
 		reason = e.Reason
 		resolutionError = e.Unwrap()
 	}
 
 	return reason, resolutionError
-}
-
-// IsErrTransient returns true if an error returned by GetTask/GetStepAction is retryable.
-func IsErrTransient(err error) bool {
-	switch {
-	case apierrors.IsConflict(err):
-		return true
-	case apierrors.IsServerTimeout(err):
-		return true
-	case apierrors.IsTimeout(err):
-		return true
-	default:
-		return slices.ContainsFunc([]string{errEtcdLeaderChange, context.DeadlineExceeded.Error()}, func(s string) bool {
-			return strings.Contains(err.Error(), s)
-		})
-	}
 }

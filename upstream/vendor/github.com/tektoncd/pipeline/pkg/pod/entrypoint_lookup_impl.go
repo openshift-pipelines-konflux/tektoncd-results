@@ -76,7 +76,7 @@ func (e *entrypointCache) get(ctx context.Context, ref name.Reference, namespace
 		ImagePullSecrets:   pullSecretsNames,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("error creating k8schain: %w", err)
+		return nil, fmt.Errorf("error creating k8schain: %v", err)
 	}
 
 	desc, err := remote.Get(ref, remote.WithAuthFromKeychain(kc))
@@ -139,11 +139,6 @@ func buildCommandMap(idx v1.ImageIndex, hasArgs bool) (map[string][]string, erro
 	}
 	for _, desc := range mf.Manifests {
 		plat := desc.Platform.String()
-		// skip unknown platforms.
-		// Docker uses these to store attestation data: https://docs.docker.com/build/attestations/attestation-storage/#examples
-		if plat == "unknown/unknown" {
-			continue
-		}
 		if got, found := platToDigest[plat]; found && got != desc.Digest {
 			return nil, fmt.Errorf("duplicate unique image found for platform: %s: found %s and %s", plat, got, desc.Digest)
 		}

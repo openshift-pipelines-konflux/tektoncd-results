@@ -21,7 +21,7 @@ import (
 	"regexp"
 
 	"cloud.google.com/go/internal/trace"
-	"cloud.google.com/go/storage/internal/apiv2/storagepb"
+	storagepb "cloud.google.com/go/storage/internal/apiv2/stubs"
 	raw "google.golang.org/api/storage/v1"
 )
 
@@ -116,7 +116,7 @@ func toProtoNotification(n *Notification) *storagepb.NotificationConfig {
 	}
 }
 
-var topicRE = regexp.MustCompile(`^//pubsub\.googleapis\.com/projects/([^/]+)/topics/([^/]+)`)
+var topicRE = regexp.MustCompile("^//pubsub.googleapis.com/projects/([^/]+)/topics/([^/]+)")
 
 // parseNotificationTopic extracts the project and topic IDs from from the full
 // resource name returned by the service. If the name is malformed, it returns
