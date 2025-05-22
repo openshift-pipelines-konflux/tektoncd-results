@@ -60,9 +60,9 @@ func workingDirInit(workingdirinitImage string, stepContainers []corev1.Containe
 		// There are no workingDirs to initialize.
 		return nil
 	}
-	securityContext := LinuxSecurityContext
+	securityContext := linuxSecurityContext
 	if windows {
-		securityContext = WindowsSecurityContext
+		securityContext = windowsSecurityContext
 	}
 
 	c := &corev1.Container{

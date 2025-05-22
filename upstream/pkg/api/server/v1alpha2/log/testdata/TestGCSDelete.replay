@@ -7,6 +7,7 @@
       "^X-Goog-.*Encryption-Key$",
       "^Expires$",
       "^Signature$",
+      "^X-Goog-Gcs-Idempotency-Token$",
       "^User-Agent$"
     ],
     "RemoveRequestHeaders": [
@@ -45,6 +46,9 @@
             "gzip"
           ],
           "User-Agent": [
+            "CLEARED"
+          ],
+          "X-Goog-Gcs-Idempotency-Token": [
             "CLEARED"
           ]
         },

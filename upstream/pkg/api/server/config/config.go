@@ -34,7 +34,6 @@ type Config struct {
 	LOGS_TYPE        string `mapstructure:"LOGS_TYPE"`
 	LOGS_BUFFER_SIZE int    `mapstructure:"LOGS_BUFFER_SIZE"`
 	LOGS_PATH        string `mapstructure:"LOGS_PATH"`
-	LOGS_TIMESTAMPS  bool   `mapstructure:"LOGS_TIMESTAMPS"`
 
 	PROFILING      bool   `mapstructure:"PROFILING"`
 	PROFILING_PORT string `mapstructure:"PROFILING_PORT"`
@@ -55,7 +54,6 @@ type Config struct {
 
 	LOGGING_PLUGIN_API_URL                  string `mapstructure:"LOGGING_PLUGIN_API_URL"`
 	LOGGING_PLUGIN_NAMESPACE_KEY            string `mapstructure:"LOGGING_PLUGIN_NAMESPACE_KEY"`
-	LOGGING_PLUGIN_CONTAINER_KEY            string `mapstructure:"LOGGING_PLUGIN_CONTAINER_KEY"`
 	LOGGING_PLUGIN_STATIC_LABELS            string `mapstructure:"LOGGING_PLUGIN_STATIC_LABELS"`
 	LOGGING_PLUGIN_TOKEN_PATH               string `mapstructure:"LOGGING_PLUGIN_TOKEN_PATH"`
 	LOGGING_PLUGIN_PROXY_PATH               string `mapstructure:"LOGGING_PLUGIN_PROXY_PATH"`
