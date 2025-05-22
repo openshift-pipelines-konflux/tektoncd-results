@@ -1,5 +1,5 @@
-ARG GO_BUILDER=brew.registry.redhat.io/rh-osbs/openshift-golang-builder:v1.22
-ARG RUNTIME=registry.redhat.io/ubi8/ubi:latest@sha256:8bd1b6306f8164de7fb0974031a0f903bd3ab3e6bcab835854d3d9a1a74ea5db
+ARG GO_BUILDER=brew.registry.redhat.io/rh-osbs/openshift-golang-builder:v1.23
+ARG RUNTIME=registry.redhat.io/ubi8/ubi:latest@sha256:244e9858f9d8a2792a3dceb850b4fa8fdbd67babebfde42587bfa919d5d1ecef
 
 FROM $GO_BUILDER AS builder
 
@@ -9,13 +9,12 @@ COPY .konflux/patches patches/
 RUN set -e; for f in patches/*.patch; do echo ${f}; [[ -f ${f} ]] || continue; git apply ${f}; done
 COPY head HEAD
 ENV GODEBUG="http2server=0"
-ENV GOEXPERIMENT=strictfipsruntime
-RUN go build -ldflags="-X 'knative.dev/pkg/changeset.rev=$(cat HEAD)'" -mod=vendor -tags disable_gcp -tags strictfipsruntime -v -o /tmp/openshift-pipelines-results-watcher \
+RUN go build -ldflags="-X 'knative.dev/pkg/changeset.rev=$(cat HEAD)'" -mod=vendor -tags disable_gcp -v -o /tmp/openshift-pipelines-results-watcher \
     ./cmd/watcher
 RUN /bin/sh -c 'echo $CI_RESULTS_UPSTREAM_COMMIT > /tmp/HEAD'
 
 FROM $RUNTIME
-ARG VERSION=results-watcher-1.15.3
+ARG VERSION=results-watcher-1.16.4
 
 ENV WATCHER=/usr/local/bin/openshift-pipelines-results-watcher \
     KO_APP=/ko-app \
