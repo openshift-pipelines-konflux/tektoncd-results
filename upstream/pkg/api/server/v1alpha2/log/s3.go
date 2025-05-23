@@ -8,7 +8,6 @@ import (
 	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
 
 	"context"
-	"fmt"
 	"io"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -17,7 +16,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	server "github.com/tektoncd/results/pkg/api/server/config"
-	"github.com/tektoncd/results/pkg/apis/v1alpha2"
+	"github.com/tektoncd/results/pkg/apis/v1alpha3"
 )
 
 const (
@@ -49,7 +48,7 @@ type s3Stream struct {
 }
 
 // NewS3Stream returns a log streamer for the S3 log storage type.
-func NewS3Stream(ctx context.Context, log *v1alpha2.Log, config *server.Config) (Stream, error) {
+func NewS3Stream(ctx context.Context, log *v1alpha3.Log, config *server.Config) (Stream, error) {
 	if log.Status.Path == "" {
 		filePath, err := FilePath(log)
 		if err != nil {
@@ -130,7 +129,7 @@ func initConfig(ctx context.Context, cfg *server.Config) (*s3.Client, error) {
 }
 
 func (*s3Stream) Type() string {
-	return string(v1alpha2.S3LogType)
+	return string(v1alpha3.S3LogType)
 }
 
 func (s3s *s3Stream) WriteTo(w io.Writer) (n int64, err error) {
@@ -139,7 +138,7 @@ func (s3s *s3Stream) WriteTo(w io.Writer) (n int64, err error) {
 		Key:    &s3s.key,
 	})
 	if err != nil {
-		return 0, fmt.Errorf(err.Error())
+		return 0, err
 	}
 
 	defer outPut.Body.Close()
@@ -147,7 +146,7 @@ func (s3s *s3Stream) WriteTo(w io.Writer) (n int64, err error) {
 	reader := bufio.NewReaderSize(outPut.Body, s3s.size)
 	n, err = reader.WriteTo(w)
 	if err != nil {
-		return 0, fmt.Errorf(err.Error())
+		return 0, err
 	}
 	return
 }
@@ -178,9 +177,9 @@ func (s3s *s3Stream) uploadMultiPart(reader io.Reader, partNumber int32, partSiz
 		UploadId:      &s3s.uploadID,
 		Bucket:        &s3s.bucket,
 		Key:           &s3s.key,
-		PartNumber:    partNumber,
+		PartNumber:    &partNumber,
 		Body:          reader,
-		ContentLength: partSize,
+		ContentLength: &partSize,
 	}, s3.WithAPIOptions(
 		v4.SwapComputePayloadSHA256ForUnsignedPayloadMiddleware,
 	))
@@ -194,7 +193,7 @@ func (s3s *s3Stream) uploadMultiPart(reader io.Reader, partNumber int32, partSiz
 		return err
 	}
 
-	s3s.parts = append(s3s.parts, types.CompletedPart{PartNumber: partNumber, ETag: part.ETag})
+	s3s.parts = append(s3s.parts, types.CompletedPart{PartNumber: &partNumber, ETag: part.ETag})
 	s3s.partNumber++
 
 	return err
