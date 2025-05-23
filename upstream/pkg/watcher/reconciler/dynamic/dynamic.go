@@ -87,7 +87,7 @@ type AfterDeletion func(ctx context.Context, object results.Object) error
 // NewDynamicReconciler creates a new dynamic Reconciler.
 func NewDynamicReconciler(kubeClientSet kubernetes.Interface, rc pb.ResultsClient, lc pb.LogsClient, oc ObjectClient, cfg *reconciler.Config) *Reconciler {
 	return &Reconciler{
-		resultsClient: results.NewClient(rc, lc, cfg),
+		resultsClient: results.NewClient(rc, lc),
 		KubeClientSet: kubeClientSet,
 		objectClient:  oc,
 		cfg:           cfg,
@@ -520,7 +520,6 @@ func (r *Reconciler) streamLogs(ctx context.Context, o results.Object, logType, 
 		Params:          tknParams,
 		PipelineRunName: o.GetName(),
 		TaskrunName:     o.GetName(),
-		Timestamps:      r.cfg.LogsTimestamps,
 		Stream: &cli.Stream{
 			Out: inMemWriteBufferStdout,
 			Err: inMemWriteBufferStderr,
