@@ -9,31 +9,11 @@ and `LOGS_TYPE` to the provider type (see below).
 
 ## Loki
 
+At present, we only support Loki as a third party logging API.
+
 The following environment variables are required:
 
 - `LOGS_TYPE`: Set to `Loki` to enable the fetching of logs from Loki.
-
-## GCS or S3
-
-The following environment variables are required:
-
-- `LOGS_TYPE`: Set to `Blob` to enable the fetching of logs from GCS or S3.
-- `LOGS_PATH`: Directory under bucket where logs are stored.
-- `LOGGING_PLUGIN_API_URL`: The URL of the bucket accepted by GO CDK library, e.g: s3://tekton-logs
-- `LOGGING_PLUGIN_QUERY_PARAMS`: Query params to configure Blob library. We also have a query param `legacy` for enabling backward compatibility with legacy get log API. You can set `legacy=true`. 
-
-You can check a configurations for minio s3:
-Vector Minio: https://github.com/tektoncd/results/blob/main/test/e2e/blob-logs/vector-s3.yaml
-API Config: https://github.com/tektoncd/results/blob/main/test/e2e/blob-logs/vector-minio-config.yaml
-Next, you can volume mount following the secret and set AWS_SHARED_CREDENTIALS_FILE and AWS_CONFIG_FILE.
-
-```
-[default]
-aws_access_key_id = Q3AM3UQ867SPQQA43P2F
-aws_secret_access_key = zuf+tfteSlswRu7BJ86wekitnifILbZam1KYY3TG
-region = us-east-1
-endpoint_url = https://play.min.io:9000
-```
 
 ## Common Configuration
 
@@ -43,7 +23,6 @@ These are the common configuration options for all third party logging APIs.
 - `LOGGING_PLUGIN_API_URL`: The URL of the third party logging API.
 - `LOGGING_PLUGIN_TOKEN_PATH`: The path to the file containing the API token. (optional)
 - `LOGGING_PLUGIN_NAMESPACE_KEY`: The key to use for the namespace filtering.
-- `LOGGING_PLUGIN_CONTAINER_KEY`: The key to use for adding container name to the logs. (optional)
 - `LOGGING_PLUGIN_STATIC_LABELS`: The static labels to use for the logs.
 - `LOGGING_PLUGIN_PROXY_PATH`: The path to the proxy to use for the third party logging API. (optional)
 - `LOGGING_PLUGIN_CA_CERT`: The CA certificate to use for the third party logging API. This should ideally be passed as environment variable in the deployment spec of the results-api pod. (optional)

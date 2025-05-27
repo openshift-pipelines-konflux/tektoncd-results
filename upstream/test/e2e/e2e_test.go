@@ -308,10 +308,8 @@ func TestPipelineRun(t *testing.T) {
 
 		t.Run("Result and RecordSummary Annotations were set accordingly", func(t *testing.T) {
 			if diff := cmp.Diff(map[string]string{
-				"repo":                 "tektoncd/results",
-				"object.metadata.name": "hello",
-				"commit":               "1a6b908",
-				"tekton.dev/pipeline":  "hello",
+				"repo":   "tektoncd/results",
+				"commit": "1a6b908",
 			}, result.Annotations); diff != "" {
 				t.Errorf("Result.Annotations: mismatch (-want +got):\n%s", diff)
 			}
