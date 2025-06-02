@@ -27,7 +27,7 @@ COPY head ${KO_DATA_PATH}/HEAD
 
 LABEL \
       com.redhat.component="openshift-pipelines-results-watcher-rhel9-container" \
-      name="openshift-pipelines/pipelines-results-watcher-rhel8" \
+      name="openshift-pipelines/pipelines-results-watcher-rhel9" \
       version=$VERSION \
       summary="Red Hat OpenShift Pipelines Results Watcher" \
       maintainer="pipelines-extcomm@redhat.com" \
