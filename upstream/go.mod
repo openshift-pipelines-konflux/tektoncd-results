@@ -26,7 +26,7 @@ require (
 	github.com/jonboulle/clockwork v0.5.0
 	github.com/json-iterator/go v1.1.12
 	github.com/mattn/go-sqlite3 v1.14.24
-	github.com/openshift/api v0.0.0-20250414140316-b7680e188c5e
+	github.com/openshift/api v0.0.0-20250620202921-c3cf9bb5ccab
 	github.com/openshift/client-go v0.0.0-20250402181141-b3bad3b645f2
 	github.com/prometheus/client_golang v1.21.1
 	github.com/robfig/cron/v3 v3.0.1
