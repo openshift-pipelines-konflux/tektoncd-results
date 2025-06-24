@@ -365,7 +365,7 @@ func setTaskRunStatusBasedOnStepStatus(ctx context.Context, logger *zap.SugaredL
 			}
 		}
 		stepState := v1.StepState{
-			ContainerState:    *state,
+			ContainerState:    *state.DeepCopy(),
 			Name:              TrimStepPrefix(s.Name),
 			Container:         s.Name,
 			ImageID:           s.ImageID,
@@ -623,6 +623,9 @@ func updateIncompleteTaskRunStatus(trs *v1.TaskRunStatus, pod *corev1.Pod) {
 		switch {
 		case IsPodExceedingNodeResources(pod):
 			markStatusRunning(trs, ReasonExceededNodeResources, "TaskRun Pod exceeded available resources")
+		case isSubPathDirectoryError(pod):
+			// if subPath directory creation errors, mark as running and wait for recovery
+			markStatusRunning(trs, ReasonPodPending, "Waiting for subPath directory creation to complete")
 		case isPodHitConfigError(pod):
 			markStatusFailure(trs, ReasonCreateContainerConfigError, "Failed to create pod due to config error")
 		case isPullImageError(pod):
@@ -803,6 +806,10 @@ func IsPodExceedingNodeResources(pod *corev1.Pod) bool {
 func isPodHitConfigError(pod *corev1.Pod) bool {
 	for _, containerStatus := range pod.Status.ContainerStatuses {
 		if containerStatus.State.Waiting != nil && containerStatus.State.Waiting.Reason == ReasonCreateContainerConfigError {
+			// for subPath directory creation errors, we want to allow recovery
+			if strings.Contains(containerStatus.State.Waiting.Message, "failed to create subPath directory") {
+				return false
+			}
 			return true
 		}
 	}
@@ -911,4 +918,15 @@ func sortPodContainerStatuses(podContainerStatuses []corev1.ContainerStatus, pod
 
 func isOOMKilled(s corev1.ContainerStatus) bool {
 	return s.State.Terminated.Reason == oomKilled
+}
+
+func isSubPathDirectoryError(pod *corev1.Pod) bool {
+	for _, containerStatus := range pod.Status.ContainerStatuses {
+		if containerStatus.State.Waiting != nil &&
+			containerStatus.State.Waiting.Reason == ReasonCreateContainerConfigError &&
+			strings.Contains(containerStatus.State.Waiting.Message, "failed to create subPath directory") {
+			return true
+		}
+	}
+	return false
 }
