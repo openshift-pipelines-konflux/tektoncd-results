@@ -1,5 +1,5 @@
 ARG GO_BUILDER=brew.registry.redhat.io/rh-osbs/openshift-golang-builder:v1.23
-ARG RUNTIME=registry.access.redhat.com/ubi9/ubi-minimal:latest@sha256:92b1d5747a93608b6adb64dfd54515c3c5a360802db4706765ff3d8470df6290
+ARG RUNTIME=registry.access.redhat.com/ubi9/ubi-minimal:latest@sha256:383329bf9c4f968e87e85d30ba3a5cb988a3bbde28b8e4932dcd3a025fd9c98c
 
 FROM $GO_BUILDER AS builder
 
@@ -14,7 +14,7 @@ RUN go build -ldflags="-X 'knative.dev/pkg/changeset.rev=$(cat HEAD)'" -mod=vend
     ./cmd/retention-policy-agent
 
 FROM $RUNTIME
-ARG VERSION=results-1.19
+ARG VERSION=results-main
 
 ENV RETENTION_POLICY_AGENT=/usr/local/bin/results-retention-policy-agent \
     KO_APP=/ko-app \
@@ -35,6 +35,7 @@ LABEL \
       io.k8s.description="Red Hat OpenShift Pipelines Results retention policy agent" \
       io.openshift.tags="pipelines,tekton,openshift"
 
+RUN microdnf install -y shadow-utils
 RUN groupadd -r -g 65532 nonroot && useradd --no-log-init -r -u 65532 -g nonroot nonroot
 USER 65532
 
