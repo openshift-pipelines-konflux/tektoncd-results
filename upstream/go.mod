@@ -50,7 +50,7 @@ require (
 	k8s.io/apimachinery v0.29.13
 	k8s.io/apiserver v0.29.13
 	k8s.io/client-go v0.29.13
-	k8s.io/utils v0.0.0-20240102154912-e7106e64919e
+	k8s.io/utils v0.0.0-20250604170112-4c0f3b243397
 	knative.dev/pkg v0.0.0-20240614135239-339c22b8218c
 	sigs.k8s.io/yaml v1.4.0
 )
