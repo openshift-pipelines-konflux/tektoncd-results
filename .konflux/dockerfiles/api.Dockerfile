@@ -28,6 +28,7 @@ LABEL \
       com.redhat.component="openshift-pipelines-results-api-rhel8-container" \
       name="openshift-pipelines/pipelines-results-api-rhel8" \
       version=$VERSION \
+      cpe="cpe:/a:redhat:openshift_pipelines:1.14::el8" \
       summary="Red Hat OpenShift Pipelines Results Api" \
       maintainer="pipelines-extcomm@redhat.com" \
       description="Red Hat OpenShift Pipelines Results Api" \
