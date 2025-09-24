@@ -28,6 +28,7 @@ LABEL \
       com.redhat.component="openshift-pipelines-results-retention-policy-agent-rhel8-container" \
       name="openshift-pipelines/pipelines-results-retention-policy-agent-rhel8" \
       version=$VERSION \
+      cpe="cpe:/a:redhat:openshift_pipelines:1.17::el8" \
       summary="Red Hat OpenShift Pipelines Results retention policy agent" \
       maintainer="pipelines-extcomm@redhat.com" \
       description="Red Hat OpenShift Pipelines Results retention policy agent" \
