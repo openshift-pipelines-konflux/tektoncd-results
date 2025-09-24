@@ -25,8 +25,9 @@ COPY --from=builder /tmp/openshift-pipelines-results-watcher ${KO_APP}/watcher
 COPY head ${KO_DATA_PATH}/HEAD
 
 LABEL \
-      com.redhat.component="openshift-pipelines-results-watcher-rhel-8-container" \
-      name="openshift-pipelines/pipelines-results-watcher-rhel8" \
+      com.redhat.component="openshift-pipelines-results-watcher-rhel-9-container" \
+      name="openshift-pipelines/pipelines-results-watcher-rhel9" \
+      cpe="cpe:/a:redhat:openshift_pipelines:1.19::el9" \
       version="${CI_CONTAINER_VERSION}" \
       summary="Red Hat OpenShift Pipelines Results Watcher" \
       maintainer="pipelines-extcomm@redhat.com" \
