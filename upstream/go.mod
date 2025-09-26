@@ -9,7 +9,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.38.5
 	github.com/fatih/color v1.15.0
 	github.com/golang-jwt/jwt/v4 v4.5.2
-	github.com/golang/protobuf v1.5.3
+	github.com/golang/protobuf v1.5.4
 	github.com/google/cel-go v0.17.6
 	github.com/google/go-cmp v0.6.0
 	github.com/google/go-replayers/httpreplay v1.1.1
