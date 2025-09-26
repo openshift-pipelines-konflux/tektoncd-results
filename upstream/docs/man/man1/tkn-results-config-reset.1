@@ -1,18 +1,15 @@
 .nh
-.TH "TKN-RESULTS" "1" "May 2025" "Tekton Results CLI" ""
+.TH "TKN-RESULTS" "1" "Aug 2025" "Tekton Results CLI" ""
 
 .SH NAME
-.PP
 tkn-results-config-reset - Reset CLI configuration to defaults
 
 
 .SH SYNOPSIS
-.PP
 \fBtkn-results config reset\fP
 
 
 .SH DESCRIPTION
-.PP
 Reset all configuration settings to their default values.
 
 .PP
@@ -28,28 +25,13 @@ This command will:
 Warning: This will remove all custom configuration settings.
          You will need to reconfigure the CLI after resetting.
 
-.PP
-Examples:
-  # Reset all configuration settings
-  tkn-results config reset
-
-.PP
-# Reset and verify the changes
-  tkn-results config reset && tkn-results config view
-
-.PP
-# Reset and immediately reconfigure
-  tkn-results config reset && tkn-results config set
-
 
 .SH OPTIONS
-.PP
 \fB-h\fP, \fB--help\fP[=false]
 	help for reset
 
 
 .SH OPTIONS INHERITED FROM PARENT COMMANDS
-.PP
 \fB-a\fP, \fB--addr\fP=""
 	[To be deprecated] Result API server address. If not specified, tkn-result would port-forward to service/tekton-results-api-service automatically
 
@@ -106,6 +88,18 @@ Examples:
 	[To be deprecated] use v1alpha2 API for get log command
 
 
+.SH EXAMPLE
+.EX
+Reset all configuration settings:
+  tkn-results config reset
+
+Reset and verify the changes:
+  tkn-results config reset && tkn-results config view
+
+Reset and immediately reconfigure:
+  tkn-results config reset && tkn-results config set
+.EE
+
+
 .SH SEE ALSO
-.PP
 \fBtkn-results-config(1)\fP

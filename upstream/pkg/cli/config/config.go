@@ -11,6 +11,7 @@ import (
 	"github.com/tektoncd/results/pkg/cli/client"
 
 	"github.com/AlecAivazis/survey/v2"
+	"github.com/spf13/cobra"
 	"github.com/tektoncd/results/pkg/cli/common"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -21,7 +22,6 @@ import (
 
 // Constants defining various labels, names, and paths used in the Tekton Results configuration.
 const (
-	ServiceLabel  string = "app.kubernetes.io/name=tekton-results-api"
 	ExtensionName string = "tekton-results"
 	Group         string = "results.tekton.dev"
 	Version       string = "v1alpha2"
@@ -35,6 +35,7 @@ type Config interface {
 	GetObject() runtime.Object
 	Set(prompt bool, p common.Params) error
 	Reset(p common.Params) error
+	Validate() error
 }
 
 type config struct {
@@ -195,9 +196,6 @@ func (c *config) Set(prompt bool, p common.Params) error {
 	// get data from prompt in enabled
 	if prompt {
 		host := c.Host()
-		if err, ok := host.(error); ok {
-			return fmt.Errorf("failed to get host: %w", err)
-		}
 		if err := c.Prompt("Host", &c.Extension.Host, host); err != nil {
 			return err
 		}
@@ -297,29 +295,17 @@ func (c *config) LoadExtension(p common.Params) error {
 	return json.Unmarshal(e.(*runtime.Unknown).Raw, c.Extension)
 }
 
-// Host retrieves a list of host URLs for the Tekton Results API based on the routes in the cluster.
-// It constructs the URLs using either HTTP or HTTPS depending on the TLS configuration of each route.
-//
-// Parameters:
-//   - p: common.Params containing configuration parameters (unused in this function but kept for consistency).
+// Host retrieves the host URL for the Tekton Results API based on external access detection.
+// It automatically detects the platform and tries to find a healthy tekton-results-api-service.
 //
 // Returns:
-//   - any: A slice of strings containing the host URLs if successful, or an error if route retrieval fails.
-func (c *config) Host() any {
-	routes, err := getRoutes(c.RESTConfig)
+//   - string: The detected host URL if successful, or empty string if detection fails.
+func (c *config) Host() string {
+	url, err := getHostURL(c.RESTConfig)
 	if err != nil {
-		return err
+		return "" // Return empty string so user can enter manually
 	}
-
-	var hosts []string
-	for _, route := range routes {
-		host := "http://" + route.Spec.Host
-		if route.Spec.TLS != nil {
-			host = "https://" + route.Spec.Host
-		}
-		hosts = append(hosts, host)
-	}
-	return hosts
+	return url // Return the detected URL as default
 }
 
 // Token returns the bearer token from the REST configuration.
@@ -350,4 +336,84 @@ func getRawKubeConfigLoader(kubeconfigPath string) clientcmd.ClientConfig {
 
 	// Return the clientcmd.ClientConfig (equivalent to ToRawKubeConfigLoader)
 	return clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, configOverrides)
+}
+
+// ServerConnectionFlagsChanged returns true if any server connection flags are set.
+func ServerConnectionFlagsChanged(cmd *cobra.Command) bool {
+	return cmd.Flags().Changed("host") ||
+		cmd.Flags().Changed("token") ||
+		cmd.Flags().Changed("insecure-skip-tls-verify") ||
+		cmd.Flags().Changed("api-path")
+}
+
+// BuildDirectClientConfig builds a client.Config from CLI flags (host, token, api-path, insecure-skip-tls-verify).
+func BuildDirectClientConfig(p common.Params) (*client.Config, error) {
+	host := p.Host()
+	token := p.Token()
+	if host == "" || token == "" {
+		return nil, errors.New("--host and --token flag must be set if using direct connection flags")
+	}
+	rc := &rest.Config{
+		Host:        host,
+		BearerToken: token,
+	}
+	if p.APIPath() != "" {
+		rc.APIPath = p.APIPath()
+	}
+
+	rc.Insecure = p.SkipTLSVerify()
+	// Optionally set timeout (default 60s)
+	rc.Timeout = 60 * time.Second
+
+	rc.APIPath = path.Join(rc.APIPath, Path)
+
+	rc.GroupVersion = &schema.GroupVersion{
+		Group:   Group,
+		Version: Version,
+	}
+	u, pth, err := rest.DefaultServerUrlFor(rc)
+	if err != nil {
+		return nil, err
+	}
+	u.Path = pth
+
+	tcfg, err := rc.TransportConfig()
+	if err != nil {
+		return nil, err
+	}
+
+	return &client.Config{
+		URL:       u,
+		Timeout:   rc.Timeout,
+		Transport: tcfg,
+	}, nil
+}
+
+// Validate validates the configuration of the client.
+// It checks if the client configuration and extension are properly set up.
+//
+// Parameters:
+//   - c: A Config interface containing the client configuration and extension.
+//
+// Returns:
+//   - error: An error if the configuration is invalid, nil otherwise.
+func (c *config) Validate() error {
+	// Check if the configuration is properly set up
+	clientConfig := c.Get()
+	if clientConfig == nil || clientConfig.URL == nil {
+		return fmt.Errorf("client configuration missing: URL not set")
+	}
+
+	// Check if essential configuration values are missing
+	extensionObj := c.GetObject()
+	extension, ok := extensionObj.(*Extension)
+	if !ok {
+		return fmt.Errorf("invalid extension type: expected *Extension, got %T", extensionObj)
+	}
+
+	if extension.Host == "" {
+		return fmt.Errorf("API server host not configured: host field is empty")
+	}
+
+	return nil
 }

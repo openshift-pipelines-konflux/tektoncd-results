@@ -34,6 +34,78 @@ import (
 	knativereconciler "knative.dev/pkg/reconciler"
 )
 
+func TestReconcile(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		tr   *pipelinev1.TaskRun
+		cfg  *reconciler.Config
+		want knativereconciler.Event
+	}{
+		{
+			name: "incomplete run with disable storing - skip",
+			tr: &pipelinev1.TaskRun{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-tr",
+					Namespace: "test-ns",
+				},
+				Status: pipelinev1.TaskRunStatus{
+					Status: duckv1.Status{
+						Conditions: duckv1.Conditions{
+							apis.Condition{
+								Type:   apis.ConditionSucceeded,
+								Status: corev1.ConditionUnknown,
+							},
+						},
+					},
+				},
+			},
+			cfg: &reconciler.Config{
+				DisableStoringIncompleteRuns: true,
+			},
+			want: nil,
+		},
+		{
+			name: "already stored - skip",
+			tr: &pipelinev1.TaskRun{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-tr",
+					Namespace: "test-ns",
+					Annotations: map[string]string{
+						resultsannotation.Stored: "true",
+					},
+				},
+				Status: pipelinev1.TaskRunStatus{
+					Status: duckv1.Status{
+						Conditions: duckv1.Conditions{
+							apis.Condition{
+								Type:   apis.ConditionSucceeded,
+								Status: corev1.ConditionTrue,
+							},
+						},
+					},
+				},
+			},
+			cfg: &reconciler.Config{
+				DisableStoringIncompleteRuns: true,
+			},
+			want: nil,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			ctx = logging.WithLogger(ctx, zaptest.NewLogger(t).Sugar())
+
+			r := &Reconciler{
+				cfg: tc.cfg,
+			}
+			got := r.ReconcileKind(ctx, tc.tr)
+			if got != tc.want {
+				t.Errorf("ReconcileKind() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestFinalize(t *testing.T) {
 	storeDeadline := time.Hour
 	finalizerRequeueInterval := time.Second
