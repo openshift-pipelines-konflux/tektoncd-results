@@ -474,8 +474,8 @@ github.com/google/go-replayers/httpreplay/internal/proxy
 ## explicit; go 1.12
 github.com/google/gofuzz
 github.com/google/gofuzz/bytesource
-# github.com/google/martian/v3 v3.3.2
-## explicit; go 1.11
+# github.com/google/martian/v3 v3.3.3
+## explicit; go 1.18
 github.com/google/martian/v3
 github.com/google/martian/v3/fifo
 github.com/google/martian/v3/filter
