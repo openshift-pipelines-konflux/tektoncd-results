@@ -1,19 +1,20 @@
 package taskrun
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"strings"
 
+	v1 "github.com/tektoncd/pipeline/pkg/apis/pipeline/v1"
 	"github.com/tektoncd/results/pkg/cli/options"
 
 	"github.com/spf13/cobra"
-	"github.com/tektoncd/results/pkg/cli/client"
 	"github.com/tektoncd/results/pkg/cli/client/logs"
 	"github.com/tektoncd/results/pkg/cli/client/records"
 	"github.com/tektoncd/results/pkg/cli/common"
-	"github.com/tektoncd/results/pkg/cli/config"
+	"github.com/tektoncd/results/pkg/cli/common/prerun"
 	pb "github.com/tektoncd/results/proto/v1alpha2/results_go_proto"
 )
 
@@ -34,9 +35,6 @@ Get logs for a TaskRun in a specific namespace:
 
 Get logs for a TaskRun by UID if there are multiple TaskRun with the same name:
   tkn-results taskrun logs --uid 12345678-1234-1234-1234-1234567890ab
-
-Get logs for a TaskRun from all namespaces:
-  tkn-results taskrun logs foo -A
 `
 
 	cmd := &cobra.Command{
@@ -45,7 +43,8 @@ Get logs for a TaskRun from all namespaces:
 		Long: `Get logs for a TaskRun by name or UID. If --uid is provided, the TaskRun name is optional.
 
 NOTE:
-Logs are not supported for the system namespace or for the default namespace used by LokiStack.`,
+Logs are not supported for the system namespace or for the default namespace used by LokiStack.
+Logs are only available for completed TaskRuns. Running TaskRuns do not have logs available yet.`,
 		Annotations: map[string]string{
 			"commandType": "main",
 		},
@@ -61,22 +60,20 @@ Logs are not supported for the system namespace or for the default namespace use
 			}
 			return nil
 		},
-		PreRunE: func(_ *cobra.Command, _ []string) error {
-			c, err := config.NewConfig(p)
+		PreRunE: func(cmd *cobra.Command, args []string) error {
+			// Initialize the client using the shared prerun function
+			var err error
+			opts.Client, err = prerun.InitClient(p, cmd)
 			if err != nil {
 				return err
 			}
-			opts.Client, err = client.NewRESTClient(c.Get())
-			if err != nil {
-				return err
-			}
-			return nil
-		},
-		RunE: func(cmd *cobra.Command, args []string) error {
-			ctx := cmd.Context()
 			if len(args) > 0 {
 				opts.ResourceName = args[0]
 			}
+			return nil
+		},
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			ctx := cmd.Context()
 
 			// Build filter string to find the TaskRun
 			filter := common.BuildFilterString(opts)
@@ -92,7 +89,7 @@ Logs are not supported for the system namespace or for the default namespace use
 				Parent:   parent,
 				Filter:   filter,
 				PageSize: 25,
-			}, common.NameAndUIDField)
+			}, common.NameUIDAndDataField)
 			if err != nil {
 				return fmt.Errorf("failed to find TaskRun: %v", err)
 			}
@@ -117,6 +114,17 @@ Logs are not supported for the system namespace or for the default namespace use
 
 			// Get the TaskRun record
 			record := resp.Records[0]
+
+			// Check if the TaskRun is completed before attempting to get logs
+			var taskRun v1.TaskRun
+			if err := json.Unmarshal(record.Data.Value, &taskRun); err != nil {
+				return fmt.Errorf("failed to parse TaskRun data: %v", err)
+			}
+
+			if taskRun.Status.CompletionTime == nil {
+				fmt.Println("Logs are not available for running TaskRuns. Please wait for the TaskRun to complete before retrieving logs.")
+				return nil
+			}
 
 			// Create a new logs client
 			lc := logs.NewClient(opts.Client)
