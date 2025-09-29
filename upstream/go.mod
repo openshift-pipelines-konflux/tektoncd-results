@@ -132,7 +132,7 @@ require (
 	github.com/google/go-containerregistry/pkg/authn/k8schain v0.0.0-20221030203717-1711cefd7eec // indirect
 	github.com/google/go-containerregistry/pkg/authn/kubernetes v0.0.0-20221017135236-9b4fdd506cdd // indirect
 	github.com/google/gofuzz v1.2.0 // indirect
-	github.com/google/martian/v3 v3.3.2 // indirect
+	github.com/google/martian/v3 v3.3.3 // indirect
 	github.com/google/s2a-go v0.1.7 // indirect
 	github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510 // indirect
 	github.com/google/wire v0.5.0 // indirect
