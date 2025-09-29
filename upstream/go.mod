@@ -209,7 +209,7 @@ require (
 	github.com/sirupsen/logrus v1.9.3 // indirect
 	github.com/sourcegraph/conc v0.3.0 // indirect
 	github.com/spf13/afero v1.11.0 // indirect
-	github.com/spf13/cast v1.6.0 // indirect
+	github.com/spf13/cast v1.10.0 // indirect
 	github.com/spiffe/go-spiffe/v2 v2.4.0 // indirect
 	github.com/spiffe/spire-api-sdk v1.11.1 // indirect
 	github.com/stoewer/go-strcase v1.3.0 // indirect
