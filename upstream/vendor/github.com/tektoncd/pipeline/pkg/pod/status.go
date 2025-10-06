@@ -19,12 +19,12 @@ package pod
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/hashicorp/go-multierror"
 	"github.com/tektoncd/pipeline/internal/sidecarlogresults"
 	"github.com/tektoncd/pipeline/pkg/apis/config"
 	"github.com/tektoncd/pipeline/pkg/apis/pipeline"
@@ -125,7 +125,7 @@ func MakeTaskRunStatus(ctx context.Context, logger *zap.SugaredLogger, tr v1.Tas
 
 	sortPodContainerStatuses(pod.Status.ContainerStatuses, pod.Spec.Containers)
 
-	complete := areStepsComplete(pod) || pod.Status.Phase == corev1.PodSucceeded || pod.Status.Phase == corev1.PodFailed
+	complete := areContainersCompleted(ctx, pod) || isPodCompleted(pod)
 
 	if complete {
 		onError, ok := tr.Annotations[v1.PipelineTaskOnErrorAnnotation]
@@ -139,7 +139,6 @@ func MakeTaskRunStatus(ctx context.Context, logger *zap.SugaredLogger, tr v1.Tas
 	}
 
 	trs.PodName = pod.Name
-	trs.Steps = []v1.StepState{}
 	trs.Sidecars = []v1.SidecarState{}
 
 	var stepStatuses []corev1.ContainerStatus
@@ -151,17 +150,18 @@ func MakeTaskRunStatus(ctx context.Context, logger *zap.SugaredLogger, tr v1.Tas
 			sidecarStatuses = append(sidecarStatuses, s)
 		}
 	}
-
-	var merr *multierror.Error
-	if err := setTaskRunStatusBasedOnStepStatus(ctx, logger, stepStatuses, &tr, pod.Status.Phase, kubeclient, ts); err != nil {
-		merr = multierror.Append(merr, err)
+	for _, s := range pod.Status.InitContainerStatuses {
+		if IsContainerSidecar(s.Name) {
+			sidecarStatuses = append(sidecarStatuses, s)
+		}
 	}
 
+	err := setTaskRunStatusBasedOnStepStatus(ctx, logger, stepStatuses, &tr, pod.Status.Phase, kubeclient, ts)
 	setTaskRunStatusBasedOnSidecarStatus(sidecarStatuses, trs)
 
 	trs.Results = removeDuplicateResults(trs.Results)
 
-	return *trs, merr.ErrorOrNil()
+	return *trs, err
 }
 
 func createTaskResultsFromStepResults(stepRunRes []v1.TaskRunStepResult, neededStepResults map[string]string) []v1.TaskRunResult {
@@ -180,9 +180,18 @@ func createTaskResultsFromStepResults(stepRunRes []v1.TaskRunStepResult, neededS
 	return taskResults
 }
 
-func getTaskResultsFromSidecarLogs(sidecarLogResults []result.RunResult) []result.RunResult {
+func setTaskRunArtifactsFromRunResult(runResults []result.RunResult, artifacts *v1.Artifacts) error {
+	for _, slr := range runResults {
+		if slr.ResultType == result.TaskRunArtifactsResultType {
+			return json.Unmarshal([]byte(slr.Value), artifacts)
+		}
+	}
+	return nil
+}
+
+func getTaskResultsFromSidecarLogs(runResults []result.RunResult) []result.RunResult {
 	taskResultsFromSidecarLogs := []result.RunResult{}
-	for _, slr := range sidecarLogResults {
+	for _, slr := range runResults {
 		if slr.ResultType == result.TaskRunResultType {
 			taskResultsFromSidecarLogs = append(taskResultsFromSidecarLogs, slr)
 		}
@@ -207,9 +216,9 @@ func getStepResultsFromSidecarLogs(sidecarLogResults []result.RunResult, contain
 	return stepResultsFromSidecarLogs, nil
 }
 
-func setTaskRunStatusBasedOnStepStatus(ctx context.Context, logger *zap.SugaredLogger, stepStatuses []corev1.ContainerStatus, tr *v1.TaskRun, podPhase corev1.PodPhase, kubeclient kubernetes.Interface, ts *v1.TaskSpec) *multierror.Error {
+func setTaskRunStatusBasedOnStepStatus(ctx context.Context, logger *zap.SugaredLogger, stepStatuses []corev1.ContainerStatus, tr *v1.TaskRun, podPhase corev1.PodPhase, kubeclient kubernetes.Interface, ts *v1.TaskSpec) error {
 	trs := &tr.Status
-	var merr *multierror.Error
+	var errs []error
 
 	// collect results from taskrun spec and taskspec
 	specResults := []v1.TaskResult{}
@@ -231,7 +240,7 @@ func setTaskRunStatusBasedOnStepStatus(ctx context.Context, logger *zap.SugaredL
 		if tr.Status.TaskSpec.Results != nil || artifactsSidecarCreated {
 			slr, err := sidecarlogresults.GetResultsFromSidecarLogs(ctx, kubeclient, tr.Namespace, tr.Status.PodName, pipeline.ReservedResultsSidecarContainerName, podPhase)
 			if err != nil {
-				merr = multierror.Append(merr, err)
+				errs = append(errs, err)
 			}
 			sidecarLogResults = append(sidecarLogResults, slr...)
 		}
@@ -241,6 +250,14 @@ func setTaskRunStatusBasedOnStepStatus(ctx context.Context, logger *zap.SugaredL
 	taskResults, _, _ := filterResults(taskResultsFromSidecarLogs, specResults, nil)
 	if tr.IsDone() {
 		trs.Results = append(trs.Results, taskResults...)
+		var tras v1.Artifacts
+		err := setTaskRunArtifactsFromRunResult(sidecarLogResults, &tras)
+		if err != nil {
+			logger.Errorf("Failed to set artifacts value from sidecar logs: %v", err)
+			errs = append(errs, err)
+		} else {
+			trs.Artifacts = &tras
+		}
 	}
 
 	// Continue with extraction of termination messages
@@ -261,13 +278,13 @@ func setTaskRunStatusBasedOnStepStatus(ctx context.Context, logger *zap.SugaredL
 		// Identify StepResults needed by the Task Results
 		neededStepResults, err := findStepResultsFetchedByTask(s.Name, specResults)
 		if err != nil {
-			merr = multierror.Append(merr, err)
+			errs = append(errs, err)
 		}
 
 		// populate step results from sidecar logs
 		stepResultsFromSidecarLogs, err := getStepResultsFromSidecarLogs(sidecarLogResults, s.Name)
 		if err != nil {
-			merr = multierror.Append(merr, err)
+			errs = append(errs, err)
 		}
 		_, stepRunRes, _ := filterResults(stepResultsFromSidecarLogs, specResults, stepResults)
 		if tr.IsDone() {
@@ -275,12 +292,12 @@ func setTaskRunStatusBasedOnStepStatus(ctx context.Context, logger *zap.SugaredL
 			// Set TaskResults from StepResults
 			trs.Results = append(trs.Results, createTaskResultsFromStepResults(stepRunRes, neededStepResults)...)
 		}
-		var as v1.Artifacts
+		var sas v1.Artifacts
 
-		err = setStepArtifactsValueFromSidecarLogs(sidecarLogResults, s.Name, &as)
+		err = setStepArtifactsValueFromSidecarLogResult(sidecarLogResults, s.Name, &sas)
 		if err != nil {
 			logger.Errorf("Failed to set artifacts value from sidecar logs: %v", err)
-			merr = multierror.Append(merr, err)
+			errs = append(errs, err)
 		}
 
 		// Parse termination messages
@@ -290,28 +307,23 @@ func setTaskRunStatusBasedOnStepStatus(ctx context.Context, logger *zap.SugaredL
 
 			results, err := termination.ParseMessage(logger, msg)
 			if err != nil {
-				logger.Errorf("termination message could not be parsed as JSON: %v", err)
-				merr = multierror.Append(merr, err)
+				logger.Errorf("termination message could not be parsed sas JSON: %v", err)
+				errs = append(errs, err)
 			} else {
-				for _, r := range results {
-					if r.ResultType == result.StepArtifactsResultType {
-						if err := json.Unmarshal([]byte(r.Value), &as); err != nil {
-							logger.Errorf("result value could not be parsed as Artifacts: %v", err)
-							merr = multierror.Append(merr, err)
-						}
-						// there should be only one ArtifactsResult
-						break
-					}
+				err := setStepArtifactsValueFromTerminationMessageRunResult(results, &sas)
+				if err != nil {
+					logger.Errorf("error setting step artifacts of step %q in taskrun %q: %v", s.Name, tr.Name, err)
+					errs = append(errs, err)
 				}
 				time, err := extractStartedAtTimeFromResults(results)
 				if err != nil {
 					logger.Errorf("error setting the start time of step %q in taskrun %q: %v", s.Name, tr.Name, err)
-					merr = multierror.Append(merr, err)
+					errs = append(errs, err)
 				}
 				exitCode, err := extractExitCodeFromResults(results)
 				if err != nil {
 					logger.Errorf("error extracting the exit code of step %q in taskrun %q: %v", s.Name, tr.Name, err)
-					merr = multierror.Append(merr, err)
+					errs = append(errs, err)
 				}
 
 				taskResults, stepRunRes, filteredResults := filterResults(results, specResults, stepResults)
@@ -320,11 +332,20 @@ func setTaskRunStatusBasedOnStepStatus(ctx context.Context, logger *zap.SugaredL
 					// Set TaskResults from StepResults
 					taskResults = append(taskResults, createTaskResultsFromStepResults(stepRunRes, neededStepResults)...)
 					trs.Results = append(trs.Results, taskResults...)
+
+					var tras v1.Artifacts
+					err := setTaskRunArtifactsFromRunResult(filteredResults, &tras)
+					if err != nil {
+						logger.Errorf("error setting step artifacts in taskrun %q: %v", tr.Name, err)
+						errs = append(errs, err)
+					}
+					trs.Artifacts.Merge(&tras)
+					trs.Artifacts.Merge(&sas)
 				}
 				msg, err = createMessageFromResults(filteredResults)
 				if err != nil {
 					logger.Errorf("%v", err)
-					merr = multierror.Append(merr, err)
+					errs = append(errs, err)
 				} else {
 					state.Terminated.Message = msg
 				}
@@ -339,24 +360,45 @@ func setTaskRunStatusBasedOnStepStatus(ctx context.Context, logger *zap.SugaredL
 				terminationReason = getTerminationReason(state.Terminated.Reason, terminationFromResults, exitCode)
 			}
 		}
-		trs.Steps = append(trs.Steps, v1.StepState{
-			ContainerState:    *state,
-			Name:              trimStepPrefix(s.Name),
+		stepState := v1.StepState{
+			ContainerState:    *state.DeepCopy(),
+			Name:              TrimStepPrefix(s.Name),
 			Container:         s.Name,
 			ImageID:           s.ImageID,
 			Results:           taskRunStepResults,
 			TerminationReason: terminationReason,
-			Inputs:            as.Inputs,
-			Outputs:           as.Outputs,
-		})
+			Inputs:            sas.Inputs,
+			Outputs:           sas.Outputs,
+		}
+		foundStep := false
+		for i, ss := range trs.Steps {
+			if ss.Name == stepState.Name {
+				stepState.Provenance = ss.Provenance
+				trs.Steps[i] = stepState
+				foundStep = true
+				break
+			}
+		}
+		if !foundStep {
+			trs.Steps = append(trs.Steps, stepState)
+		}
 	}
 
-	return merr
+	return errors.Join(errs...)
 }
 
-func setStepArtifactsValueFromSidecarLogs(results []result.RunResult, name string, artifacts *v1.Artifacts) error {
+func setStepArtifactsValueFromSidecarLogResult(results []result.RunResult, name string, artifacts *v1.Artifacts) error {
 	for _, r := range results {
 		if r.Key == name && r.ResultType == result.StepArtifactsResultType {
+			return json.Unmarshal([]byte(r.Value), artifacts)
+		}
+	}
+	return nil
+}
+
+func setStepArtifactsValueFromTerminationMessageRunResult(results []result.RunResult, artifacts *v1.Artifacts) error {
+	for _, r := range results {
+		if r.ResultType == result.StepArtifactsResultType {
 			return json.Unmarshal([]byte(r.Value), artifacts)
 		}
 	}
@@ -471,6 +513,9 @@ func filterResults(results []result.RunResult, specResults []v1.TaskResult, step
 		case result.StepArtifactsResultType:
 			filteredResults = append(filteredResults, r)
 			continue
+		case result.TaskRunArtifactsResultType:
+			filteredResults = append(filteredResults, r)
+			continue
 		case result.InternalTektonResultType:
 			// Internal messages are ignored because they're not used as external result
 			continue
@@ -518,11 +563,11 @@ func extractExitCodeFromResults(results []result.RunResult) (*int32, error) {
 	for _, result := range results {
 		if result.Key == "ExitCode" {
 			// We could just pass the string through but this provides extra validation
-			i, err := strconv.ParseUint(result.Value, 10, 32)
+			i, err := strconv.ParseInt(result.Value, 10, 32)
 			if err != nil {
 				return nil, fmt.Errorf("could not parse int value %q in ExitCode field: %w", result.Value, err)
 			}
-			exitCode := int32(i)
+			exitCode := int32(i) // #nosec G115: ParseInt was called with bit size 32, so this is safe
 			return &exitCode, nil
 		}
 	}
@@ -574,6 +619,9 @@ func updateIncompleteTaskRunStatus(trs *v1.TaskRunStatus, pod *corev1.Pod) {
 		switch {
 		case IsPodExceedingNodeResources(pod):
 			markStatusRunning(trs, ReasonExceededNodeResources, "TaskRun Pod exceeded available resources")
+		case isSubPathDirectoryError(pod):
+			// if subPath directory creation errors, mark as running and wait for recovery
+			markStatusRunning(trs, ReasonPodPending, "Waiting for subPath directory creation to complete")
 		case isPodHitConfigError(pod):
 			markStatusFailure(trs, ReasonCreateContainerConfigError, "Failed to create pod due to config error")
 		case isPullImageError(pod):
@@ -584,6 +632,30 @@ func updateIncompleteTaskRunStatus(trs *v1.TaskRunStatus, pod *corev1.Pod) {
 	case corev1.PodSucceeded, corev1.PodFailed, corev1.PodUnknown:
 		// Do nothing; pod has completed or is in an unknown state.
 	}
+}
+
+// isPodCompleted checks if the given pod is completed.
+// A pod is considered completed if its phase is either "Succeeded" or "Failed".
+//
+// If it is foreseeable that the pod will eventually be in a failed state,
+// but it remains in a Running status for a visible period of time, it should be considered completed in advance.
+//
+// For example, when certain steps encounter OOM, only the pods that have timed out will change to a failed state,
+// we should consider them completed in advance.
+func isPodCompleted(pod *corev1.Pod) bool {
+	if pod.Status.Phase == corev1.PodSucceeded || pod.Status.Phase == corev1.PodFailed {
+		return true
+	}
+	for _, s := range pod.Status.ContainerStatuses {
+		if IsContainerStep(s.Name) {
+			if s.State.Terminated != nil {
+				if isOOMKilled(s) {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 // DidTaskRunFail check the status of pod to decide if related taskrun is failed
@@ -614,16 +686,45 @@ func IsPodArchived(pod *corev1.Pod, trs *v1.TaskRunStatus) bool {
 	return false
 }
 
-func areStepsComplete(pod *corev1.Pod) bool {
-	stepsComplete := len(pod.Status.ContainerStatuses) > 0 && pod.Status.Phase == corev1.PodRunning
-	for _, s := range pod.Status.ContainerStatuses {
-		if IsContainerStep(s.Name) {
-			if s.State.Terminated == nil {
-				stepsComplete = false
-			}
+// containerNameFilter is a function that filters container names.
+type containerNameFilter func(name string) bool
+
+// isMatchingAnyFilter returns true if the container name matches any of the filters.
+func isMatchingAnyFilter(name string, filters []containerNameFilter) bool {
+	for _, filter := range filters {
+		if filter(name) {
+			return true
 		}
 	}
-	return stepsComplete
+	return false
+}
+
+// areContainersCompleted returns true if all related containers in the pod are completed.
+func areContainersCompleted(ctx context.Context, pod *corev1.Pod) bool {
+	nameFilters := []containerNameFilter{IsContainerStep}
+	if config.FromContextOrDefaults(ctx).FeatureFlags.ResultExtractionMethod == config.ResultExtractionMethodSidecarLogs {
+		// If we are using sidecar logs to extract results, we need to wait for the sidecar to complete.
+		// Avoid failing to obtain the final result from the sidecar because the sidecar is not yet complete.
+		nameFilters = append(nameFilters, func(name string) bool {
+			return name == pipeline.ReservedResultsSidecarContainerName
+		})
+	}
+	return checkContainersCompleted(pod, nameFilters)
+}
+
+// checkContainersCompleted returns true if containers in the pod are completed.
+func checkContainersCompleted(pod *corev1.Pod, nameFilters []containerNameFilter) bool {
+	if len(pod.Status.ContainerStatuses) == 0 ||
+		!(pod.Status.Phase == corev1.PodRunning || pod.Status.Phase == corev1.PodSucceeded) {
+		return false
+	}
+	for _, containerStatus := range pod.Status.ContainerStatuses {
+		if isMatchingAnyFilter(containerStatus.Name, nameFilters) && containerStatus.State.Terminated == nil {
+			// if any container is not completed, return false
+			return false
+		}
+	}
+	return true
 }
 
 func getFailureMessage(logger *zap.SugaredLogger, pod *corev1.Pod) string {
@@ -679,6 +780,10 @@ func extractContainerFailureMessage(logger *zap.SugaredLogger, status corev1.Con
 			}
 		}
 		if term.ExitCode != 0 {
+			// Include the termination reason, if available to add clarity for causes such as external signals, e.g. OOM
+			if term.Reason != "" {
+				return fmt.Sprintf("%q exited with code %d: %s", status.Name, term.ExitCode, term.Reason)
+			}
 			return fmt.Sprintf("%q exited with code %d", status.Name, term.ExitCode)
 		}
 	}
@@ -701,6 +806,10 @@ func IsPodExceedingNodeResources(pod *corev1.Pod) bool {
 func isPodHitConfigError(pod *corev1.Pod) bool {
 	for _, containerStatus := range pod.Status.ContainerStatuses {
 		if containerStatus.State.Waiting != nil && containerStatus.State.Waiting.Reason == ReasonCreateContainerConfigError {
+			// for subPath directory creation errors, we want to allow recovery
+			if strings.Contains(containerStatus.State.Waiting.Message, "failed to create subPath directory") {
+				return false
+			}
 			return true
 		}
 	}
@@ -809,4 +918,15 @@ func sortPodContainerStatuses(podContainerStatuses []corev1.ContainerStatus, pod
 
 func isOOMKilled(s corev1.ContainerStatus) bool {
 	return s.State.Terminated.Reason == oomKilled
+}
+
+func isSubPathDirectoryError(pod *corev1.Pod) bool {
+	for _, containerStatus := range pod.Status.ContainerStatuses {
+		if containerStatus.State.Waiting != nil &&
+			containerStatus.State.Waiting.Reason == ReasonCreateContainerConfigError &&
+			strings.Contains(containerStatus.State.Waiting.Message, "failed to create subPath directory") {
+			return true
+		}
+	}
+	return false
 }
