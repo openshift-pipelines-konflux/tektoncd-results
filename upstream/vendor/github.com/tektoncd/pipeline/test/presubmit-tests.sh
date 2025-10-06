@@ -29,20 +29,6 @@ export DISABLE_YAML_LINTING=1
 
 source $(git rev-parse --show-toplevel)/vendor/github.com/tektoncd/plumbing/scripts/presubmit-tests.sh
 
-function check_go_lint() {
-    header "Testing if golint has been done"
-
-    # deadline of 5m, and show all the issues
-    GOFLAGS="-mod=mod" make golangci-lint-check
-
-    if [[ $? != 0 ]]; then
-        results_banner "Go Lint" 1
-        exit 1
-    fi
-
-    results_banner "Go Lint" 0
-}
-
 function check_yaml_lint() {
     header "Testing if yamllint has been done"
 
@@ -65,11 +51,11 @@ function ko_resolve() {
     baseImageOverrides:
       # Use the combined base image for images that should include Windows support.
       # NOTE: Make sure this list of images to use the combined base image is in sync with what's in tekton/publish.yaml's 'create-ko-yaml' Task.
-      github.com/tektoncd/pipeline/cmd/entrypoint: gcr.io/tekton-releases/github.com/tektoncd/pipeline/combined-base-image:latest
-      github.com/tektoncd/pipeline/cmd/nop: gcr.io/tekton-releases/github.com/tektoncd/pipeline/combined-base-image:latest
-      github.com/tektoncd/pipeline/cmd/workingdirinit: gcr.io/tekton-releases/github.com/tektoncd/pipeline/combined-base-image:latest
+      github.com/tektoncd/pipeline/cmd/entrypoint: ghcr.io/tektoncd/pipeline/github.com/tektoncd/pipeline/combined-base-image:latest
+      github.com/tektoncd/pipeline/cmd/nop: ghcr.io/tektoncd/pipeline/github.com/tektoncd/pipeline/combined-base-image:latest
+      github.com/tektoncd/pipeline/cmd/workingdirinit: ghcr.io/tektoncd/pipeline/github.com/tektoncd/pipeline/combined-base-image:latest
 
-      github.com/tektoncd/pipeline/cmd/git-init: cgr.dev/chainguard/git
+      github.com/tektoncd/pipeline/cmd/resolvers: ghcr.io/tektoncd/plumbing/tini-git@sha256:2c18f0b3ed4394e27068b5c70bb55419797e8fc743d8ea9e0c2766001b36b5b4
 EOF
 
   KO_DOCKER_REPO=example.com ko resolve -l 'app.kubernetes.io/component!=resolvers' --platform=all --push=false -R -f config 1>/dev/null
@@ -77,9 +63,8 @@ EOF
 }
 
 function post_build_tests() {
-  check_go_lint
   check_yaml_lint
-  ko_resolve
+  # ko_resolve
 }
 
 # We use the default build, unit and integration test runners.
