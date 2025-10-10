@@ -1,6 +1,8 @@
 module github.com/tektoncd/results
 
-go 1.23.4
+go 1.24
+
+toolchain go1.24.6
 
 require (
 	github.com/AlecAivazis/survey/v2 v2.3.7
@@ -130,7 +132,7 @@ require (
 	github.com/felixge/httpsnoop v1.0.4 // indirect
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/fxamacker/cbor/v2 v2.7.0 // indirect
-	github.com/gdamore/encoding v1.0.0 // indirect
+	github.com/gdamore/encoding v1.0.1 // indirect
 	github.com/gdamore/tcell/v2 v2.6.0 // indirect
 	github.com/go-errors/errors v1.4.2 // indirect
 	github.com/go-jose/go-jose/v4 v4.0.5 // indirect
@@ -178,7 +180,7 @@ require (
 	github.com/kelseyhightower/envconfig v1.4.0 // indirect
 	github.com/klauspost/compress v1.18.0 // indirect
 	github.com/ktr0731/go-ansisgr v0.1.0 // indirect
-	github.com/ktr0731/go-fuzzyfinder v0.8.0 // indirect
+	github.com/ktr0731/go-fuzzyfinder v0.9.0 // indirect
 	github.com/letsencrypt/boulder v0.0.0-20240620165639-de9c06129bec // indirect
 	github.com/liggitt/tabwriter v0.0.0-20181228230101-89fcab3d43de // indirect
 	github.com/lucasb-eyer/go-colorful v1.2.0 // indirect
