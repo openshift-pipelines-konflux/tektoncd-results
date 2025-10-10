@@ -1,6 +1,9 @@
 package fuzzyfinder
 
-import "sync"
+import (
+	"context"
+	"sync"
+)
 
 type opt struct {
 	mode          mode
@@ -11,6 +14,10 @@ type opt struct {
 	promptString  string
 	header        string
 	beginAtTop    bool
+	context       context.Context
+	query         string
+	selectOne     bool
+	preselected   func(i int) bool
 }
 
 type mode int
@@ -27,8 +34,9 @@ const (
 )
 
 var defaultOption = opt{
-	promptString: "> ",
+	promptString:  "> ",
 	hotReloadLock: &sync.Mutex{}, // this won't resolve the race condition but avoid nil panic
+	preselected:   func(i int) bool { return false },
 }
 
 // Option represents available fuzzy-finding options.
@@ -69,7 +77,7 @@ func WithHotReload() Option {
 // The caller must pass a pointer of the slice instead of the slice itself.
 // The caller must pass a RLock which is used to synchronize access to the slice.
 // The caller MUST NOT lock in the itemFunc passed to Find / FindMulti because it will be locked by the fuzzyfinder.
-// If used together with WithPreviewWindow, the caller MUST use the RLock only in the previewFunc passed to WithPreviewWindow. 
+// If used together with WithPreviewWindow, the caller MUST use the RLock only in the previewFunc passed to WithPreviewWindow.
 func WithHotReloadLock(lock sync.Locker) Option {
 	return func(o *opt) {
 		o.hotReload = true
@@ -85,6 +93,8 @@ const (
 )
 
 // WithCursorPosition sets the initial position of the cursor
+//
+// If Find is called with WithCursorPosition and WithPreselected, the cursor will be positioned at the first preselected item.
 func WithCursorPosition(position cursorPosition) Option {
 	return func(o *opt) {
 		switch position {
@@ -114,5 +124,39 @@ func withMulti() Option {
 func WithHeader(s string) Option {
 	return func(o *opt) {
 		o.header = s
+	}
+}
+
+// WithContext enables closing the fuzzy finder from parent.
+func WithContext(ctx context.Context) Option {
+	return func(o *opt) {
+		o.context = ctx
+	}
+}
+
+// WithQuery enables to set the initial query.
+func WithQuery(s string) Option {
+	return func(o *opt) {
+		o.query = s
+	}
+}
+
+// WithQuery enables to set the initial query.
+func WithSelectOne() Option {
+	return func(o *opt) {
+		o.selectOne = true
+	}
+}
+
+// WithPreselected enables to specify which items should be preselected.
+// The argument f is a function that returns true for items that should be preselected.
+// i is the same index value passed to itemFunc in Find or FindMulti.
+// This option is effective in both Find and FindMulti, but in Find mode only
+// the first preselected item will be considered.
+//
+// If Find is called with WithCursorPosition and WithPreselected, the cursor will be positioned at the first preselected item.
+func WithPreselected(f func(i int) bool) Option {
+	return func(o *opt) {
+		o.preselected = f
 	}
 }

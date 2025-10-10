@@ -76,6 +76,8 @@ type finder struct {
 	drawTimer *time.Timer
 	eventCh   chan struct{}
 	opt       *opt
+
+	termEventsChan <-chan tcell.Event
 }
 
 func newFinder() *finder {
@@ -94,20 +96,51 @@ func (f *finder) initFinder(items []string, matched []matching.Matched, opt opt)
 		if err := f.term.Init(); err != nil {
 			return errors.Wrap(err, "failed to initialize screen")
 		}
+
+		eventsChan := make(chan tcell.Event)
+		go f.term.ChannelEvents(eventsChan, nil)
+		f.termEventsChan = eventsChan
 	}
 
 	f.opt = &opt
 	f.state = state{}
 
+	var cursorPositioned bool
 	if opt.multi {
 		f.state.selection = map[int]int{}
+		f.state.selectionIdx = 1
+
+		// Apply preselection
+		for i := range items {
+			if opt.preselected(i) {
+				f.state.selection[i] = f.state.selectionIdx
+				f.state.selectionIdx++
+			}
+		}
+	} else {
+		// In non-multi mode, set the cursor position to the first preselected item
+		for i := range items {
+			if opt.preselected(i) {
+				cursorPositioned = true
+				// Find the matched item index
+				for j, m := range matched {
+					if m.Idx == i {
+						f.state.y = j
+						f.state.cursorY = min(j, len(matched)-1)
+						break
+					}
+				}
+				break // Only use the first preselected item
+			}
+		}
 	}
 
 	f.state.items = items
 	f.state.matched = matched
 	f.state.allMatched = matched
 
-	if opt.beginAtTop {
+	// If no preselected item is found and beginAtTop is true, set the cursor to the last item
+	if !cursorPositioned && opt.beginAtTop {
 		f.state.cursorY = len(f.state.matched) - 1
 		f.state.y = len(f.state.matched) - 1
 	}
@@ -123,6 +156,14 @@ func (f *finder) initFinder(items []string, matched []matching.Matched, opt opt)
 		f.drawTimer.Stop()
 	}
 	f.eventCh = make(chan struct{}, 30) // A large value
+
+	if opt.query != "" {
+		f.state.input = []rune(opt.query)
+		f.state.cursorX = runewidth.StringWidth(opt.query)
+		f.state.x = len(opt.query)
+		f.filter()
+	}
+
 	return nil
 }
 
@@ -131,6 +172,18 @@ func (f *finder) updateItems(items []string, matched []matching.Matched) {
 	f.state.items = items
 	f.state.matched = matched
 	f.state.allMatched = matched
+
+	// Apply preselection to any new items
+	if f.opt.multi {
+		for i := 0; i < len(items); i++ {
+			// Check if this item is not already in the selection and should be preselected
+			if _, exists := f.state.selection[i]; !exists && f.opt.preselected(i) {
+				f.state.selection[i] = f.state.selectionIdx
+				f.state.selectionIdx++
+			}
+		}
+	}
+
 	f.stateMu.Unlock()
 	f.eventCh <- struct{}{}
 }
@@ -442,9 +495,10 @@ func (f *finder) draw(d time.Duration) {
 }
 
 // readKey reads a key input.
-// It returns ErrAbort if esc, CTRL-C or CTRL-D keys are inputted.
-// Also, it returns errEntered if enter key is inputted.
-func (f *finder) readKey() error {
+// It returns ErrAbort if esc, CTRL-C or CTRL-D keys are inputted,
+// errEntered in case of enter key, and a context error when the passed
+// context is cancelled.
+func (f *finder) readKey(ctx context.Context) error {
 	f.stateMu.RLock()
 	prevInputLen := len(f.state.input)
 	f.stateMu.RUnlock()
@@ -457,7 +511,15 @@ func (f *finder) readKey() error {
 		}
 	}()
 
-	e := f.term.PollEvent()
+	var e tcell.Event
+
+	select {
+	case ee := <-f.termEventsChan:
+		e = ee
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+
 	f.stateMu.Lock()
 	defer f.stateMu.Unlock()
 
@@ -629,6 +691,18 @@ func (f *finder) filter() {
 		return
 	}
 
+	// If we are in single-select mode, try to move cursor to the first preselected item
+	// that's still in the matched results
+	if !f.opt.multi {
+		for i, m := range f.state.matched {
+			if f.opt.preselected(m.Idx) {
+				f.state.y = i
+				f.state.cursorY = min(i, len(f.state.matched)-1)
+				return
+			}
+		}
+	}
+
 	switch {
 	case f.state.cursorY >= len(f.state.matched):
 		f.state.cursorY = len(f.state.matched) - 1
@@ -670,7 +744,14 @@ func (f *finder) find(slice interface{}, itemFunc func(i int) string, opts []Opt
 		matched []matching.Matched
 	)
 
-	ctx, cancel := context.WithCancel(context.Background())
+	var parentContext context.Context
+	if opt.context != nil {
+		parentContext = opt.context
+	} else {
+		parentContext = context.Background()
+	}
+
+	ctx, cancel := context.WithCancel(parentContext)
 	defer cancel()
 
 	inited := make(chan struct{})
@@ -714,6 +795,10 @@ func (f *finder) find(slice interface{}, itemFunc func(i int) string, opts []Opt
 
 	close(inited)
 
+	if opt.selectOne && len(f.state.matched) == 1 {
+		return []int{f.state.matched[0].Idx}, nil
+	}
+
 	go func() {
 		for {
 			select {
@@ -727,40 +812,45 @@ func (f *finder) find(slice interface{}, itemFunc func(i int) string, opts []Opt
 	}()
 
 	for {
-		f.draw(10 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+			f.draw(10 * time.Millisecond)
 
-		err := f.readKey()
-		// hack for earning time to filter exec
-		if isInTesting() {
-			time.Sleep(50 * time.Millisecond)
-		}
-		switch {
-		case errors.Is(err, ErrAbort):
-			return nil, ErrAbort
-		case errors.Is(err, errEntered):
-			f.stateMu.RLock()
-			defer f.stateMu.RUnlock()
-
-			if len(f.state.matched) == 0 {
+			err := f.readKey(ctx)
+			// hack for earning time to filter exec
+			if isInTesting() {
+				time.Sleep(50 * time.Millisecond)
+			}
+			switch {
+			case errors.Is(err, ErrAbort):
 				return nil, ErrAbort
-			}
-			if f.opt.multi {
-				if len(f.state.selection) == 0 {
-					return []int{f.state.matched[f.state.y].Idx}, nil
+			case errors.Is(err, errEntered):
+				f.stateMu.RLock()
+				defer f.stateMu.RUnlock()
+
+				if len(f.state.matched) == 0 {
+					return nil, ErrAbort
 				}
-				poss, idxs := make([]int, 0, len(f.state.selection)), make([]int, 0, len(f.state.selection))
-				for idx, pos := range f.state.selection {
-					idxs = append(idxs, idx)
-					poss = append(poss, pos)
+				if f.opt.multi {
+					if len(f.state.selection) == 0 {
+						return []int{f.state.matched[f.state.y].Idx}, nil
+					}
+					poss, idxs := make([]int, 0, len(f.state.selection)), make([]int, 0, len(f.state.selection))
+					for idx, pos := range f.state.selection {
+						idxs = append(idxs, idx)
+						poss = append(poss, pos)
+					}
+					sort.Slice(idxs, func(i, j int) bool {
+						return poss[i] < poss[j]
+					})
+					return idxs, nil
 				}
-				sort.Slice(idxs, func(i, j int) bool {
-					return poss[i] < poss[j]
-				})
-				return idxs, nil
+				return []int{f.state.matched[f.state.y].Idx}, nil
+			case err != nil:
+				return nil, errors.Wrap(err, "failed to read a key")
 			}
-			return []int{f.state.matched[f.state.y].Idx}, nil
-		case err != nil:
-			return nil, errors.Wrap(err, "failed to read a key")
 		}
 	}
 }
