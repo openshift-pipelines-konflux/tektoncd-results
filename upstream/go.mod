@@ -1,8 +1,8 @@
 module github.com/tektoncd/results
 
-go 1.23.0
+go 1.24.0
 
-toolchain go1.24.1
+toolchain go1.24.6
 
 require (
 	github.com/aws/aws-sdk-go-v2 v1.26.0
@@ -13,7 +13,7 @@ require (
 	github.com/golang-jwt/jwt/v4 v4.5.2
 	github.com/golang/protobuf v1.5.4
 	github.com/google/cel-go v0.20.1
-	github.com/google/go-cmp v0.6.0
+	github.com/google/go-cmp v0.7.0
 	github.com/google/go-replayers/httpreplay v1.2.0
 	github.com/google/martian/v3 v3.3.3
 	github.com/google/uuid v1.6.0
@@ -25,7 +25,7 @@ require (
 	github.com/jackc/pgconn v1.14.3
 	github.com/jonboulle/clockwork v0.4.0
 	github.com/mattn/go-sqlite3 v1.14.22
-	github.com/prometheus/client_golang v1.19.1
+	github.com/prometheus/client_golang v1.20.4
 	github.com/robfig/cron/v3 v3.0.0
 	github.com/spf13/cobra v1.8.0
 	github.com/spf13/pflag v1.0.5
@@ -36,12 +36,12 @@ require (
 	go.uber.org/automaxprocs v1.5.3
 	go.uber.org/zap v1.27.0
 	gocloud.dev v0.37.0
-	golang.org/x/net v0.33.0
-	golang.org/x/oauth2 v0.21.0
+	golang.org/x/net v0.44.0
+	golang.org/x/oauth2 v0.31.0
 	google.golang.org/api v0.183.0
 	google.golang.org/genproto/googleapis/api v0.0.0-20240604185151-ef581f913117
 	google.golang.org/grpc v1.66.2
-	google.golang.org/protobuf v1.34.1
+	google.golang.org/protobuf v1.36.10
 	gorm.io/driver/mysql v1.5.1
 	gorm.io/driver/postgres v1.5.2
 	gorm.io/driver/sqlite v1.5.6
@@ -165,7 +165,7 @@ require (
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/kballard/go-shellquote v0.0.0-20180428030007-95032a82bc51 // indirect
 	github.com/kelseyhightower/envconfig v1.4.0 // indirect
-	github.com/klauspost/compress v1.17.8 // indirect
+	github.com/klauspost/compress v1.17.9 // indirect
 	github.com/ktr0731/go-ansisgr v0.1.0 // indirect
 	github.com/ktr0731/go-fuzzyfinder v0.8.0 // indirect
 	github.com/letsencrypt/boulder v0.0.0-20231026200631-000cd05d5491 // indirect
@@ -193,9 +193,9 @@ require (
 	github.com/pelletier/go-toml/v2 v2.1.0 // indirect
 	github.com/peterbourgon/diskv v2.0.1+incompatible // indirect
 	github.com/pkg/errors v0.9.1 // indirect
-	github.com/prometheus/client_model v0.6.1 // indirect
-	github.com/prometheus/common v0.54.0 // indirect
-	github.com/prometheus/procfs v0.12.0 // indirect
+	github.com/prometheus/client_model v0.6.2 // indirect
+	github.com/prometheus/common v0.67.1 // indirect
+	github.com/prometheus/procfs v0.15.1 // indirect
 	github.com/prometheus/statsd_exporter v0.22.7 // indirect
 	github.com/rivo/uniseg v0.4.4 // indirect
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
@@ -223,12 +223,13 @@ require (
 	go.opentelemetry.io/otel/trace v1.27.0 // indirect
 	go.starlark.net v0.0.0-20230525235612-a134d8f9ddca // indirect
 	go.uber.org/multierr v1.11.0 // indirect
-	golang.org/x/crypto v0.35.0 // indirect
+	go.yaml.in/yaml/v2 v2.4.3 // indirect
+	golang.org/x/crypto v0.42.0 // indirect
 	golang.org/x/exp v0.0.0-20231108232855-2478ac86f678 // indirect
-	golang.org/x/sync v0.11.0 // indirect
-	golang.org/x/sys v0.30.0 // indirect
-	golang.org/x/term v0.29.0 // indirect
-	golang.org/x/text v0.22.0 // indirect
+	golang.org/x/sync v0.17.0 // indirect
+	golang.org/x/sys v0.36.0 // indirect
+	golang.org/x/term v0.35.0 // indirect
+	golang.org/x/text v0.29.0 // indirect
 	golang.org/x/time v0.5.0 // indirect
 	golang.org/x/xerrors v0.0.0-20231012003039-104605ab7028 // indirect
 	gomodules.xyz/jsonpatch/v2 v2.4.0 // indirect
