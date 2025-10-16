@@ -12,14 +12,14 @@ metadata:
     pipelinesascode.tekton.dev/on-cel-expression: event == "push" && target_branch
       == "main" &&
       ("upstream/***".pathChanged() || ".konflux/patches/***".pathChanged() || ".konflux/rpms/***".pathChanged() ||
-      ".konflux/dockerfiles/watcher.Dockerfile".pathChanged() ||
-      ".tekton/tektoncd-results-main-watcher-push.yaml".pathChanged())
+      ".konflux/dockerfiles/retention-policy-agent.Dockerfile".pathChanged() ||
+      ".tekton/tektoncd-results-main-retention-policy-agent-push.yaml".pathChanged())
   creationTimestamp: null
   labels:
     appstudio.openshift.io/application: openshift-pipelines-core-main
-    appstudio.openshift.io/component: tektoncd-results-main-watcher
+    appstudio.openshift.io/component: tektoncd-results-main-retention-policy-agent
     pipelines.appstudio.openshift.io/type: build
-  name: tektoncd-results-main-watcher-on-push
+  name: tektoncd-results-main-retention-policy-agent-on-push
   namespace: tekton-ecosystem-tenant
 spec:
   params:
@@ -28,16 +28,16 @@ spec:
   - name: revision
     value: '{{revision}}'
   - name: output-image
-    value: quay.io/redhat-user-workloads/tekton-ecosystem-tenant/results-watcher-rhel9:{{revision}}
+    value: quay.io/redhat-user-workloads/tekton-ecosystem-tenant/results-retention-policy-agent-rhel9:{{revision}}
   - name: dockerfile
-    value: .konflux/dockerfiles/watcher.Dockerfile
+    value: .konflux/dockerfiles/retention-policy-agent.Dockerfile
   - name: prefetch-input
     value: |
       {"type": "rpm", "path": ".konflux/rpms"}
   pipelineRef:
     name: docker-build-ta
   taskRunTemplate:
-    serviceAccountName: build-pipeline-tektoncd-results-main-watcher
+    serviceAccountName: build-pipeline-tektoncd-results-main-retention-policy-agent
   workspaces:
   - name: git-auth
     secret:
