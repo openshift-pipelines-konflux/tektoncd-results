@@ -216,7 +216,7 @@ require (
 	github.com/spiffe/go-spiffe/v2 v2.5.0 // indirect
 	github.com/spiffe/spire-api-sdk v1.12.4 // indirect
 	github.com/stoewer/go-strcase v1.3.0 // indirect
-	github.com/stretchr/objx v0.5.2 // indirect
+	github.com/stretchr/objx v0.5.3 // indirect
 	github.com/subosito/gotenv v1.6.0 // indirect
 	github.com/tektoncd/triggers v0.32.0 // indirect
 	github.com/tidwall/match v1.1.1 // indirect
