@@ -10,16 +10,16 @@ metadata:
     build.appstudio.redhat.com/target_branch: '{{target_branch}}'
     pipelinesascode.tekton.dev/max-keep-runs: "3"
     pipelinesascode.tekton.dev/on-cel-expression: event == "push" && target_branch
-      == "main" &&
+      == "release-v1.22.x" &&
       ("upstream/***".pathChanged() || ".konflux/patches/***".pathChanged() || ".konflux/rpms/***".pathChanged() ||
       ".konflux/dockerfiles/api.Dockerfile".pathChanged() ||
-      ".tekton/tektoncd-results-main-api-push.yaml".pathChanged())
+      ".tekton/tektoncd-results-1-22-api-push.yaml".pathChanged())
   creationTimestamp: null
   labels:
-    appstudio.openshift.io/application: openshift-pipelines-core-main
-    appstudio.openshift.io/component: tektoncd-results-main-api
+    appstudio.openshift.io/application: openshift-pipelines-core-1-22
+    appstudio.openshift.io/component: tektoncd-results-1-22-api
     pipelines.appstudio.openshift.io/type: build
-  name: tektoncd-results-main-api-on-push
+  name: tektoncd-results-1-22-api-on-push
   namespace: tekton-ecosystem-tenant
 spec:
   params:
@@ -37,7 +37,7 @@ spec:
   pipelineRef:
     name: docker-build-ta
   taskRunTemplate:
-    serviceAccountName: build-pipeline-tektoncd-results-main-api
+    serviceAccountName: build-pipeline-tektoncd-results-api-1-22
   workspaces:
   - name: git-auth
     secret:
