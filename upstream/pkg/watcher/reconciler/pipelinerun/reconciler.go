@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/tektoncd/results/pkg/apis/config"
+	"github.com/tektoncd/results/pkg/metrics"
 	"github.com/tektoncd/results/pkg/pipelinerunmetrics"
 
 	pipelinev1 "github.com/tektoncd/pipeline/pkg/apis/pipeline/v1"
@@ -46,14 +47,15 @@ type Reconciler struct {
 	// kubeClientSet allows us to talk to the k8s for core APIs
 	kubeClientSet kubernetes.Interface
 
-	resultsClient     pb.ResultsClient
-	logsClient        pb.LogsClient
-	pipelineRunLister pipelinev1listers.PipelineRunLister
-	taskRunLister     pipelinev1listers.TaskRunLister
-	pipelineClient    versioned.Interface
-	cfg               *reconciler.Config
-	metrics           *pipelinerunmetrics.Recorder
-	configStore       *config.Store
+	resultsClient      pb.ResultsClient
+	logsClient         pb.LogsClient
+	pipelineRunLister  pipelinev1listers.PipelineRunLister
+	taskRunLister      pipelinev1listers.TaskRunLister
+	pipelineClient     versioned.Interface
+	cfg                *reconciler.Config
+	metrics            *metrics.Recorder
+	pipelineRunMetrics *pipelinerunmetrics.Recorder
+	configStore        *config.Store
 }
 
 // Check that our Reconciler implements pipelinerunreconciler.Interface and pipelinerunreconciler.Finalizer
@@ -91,8 +93,18 @@ func (r *Reconciler) ReconcileKind(ctx context.Context, pr *pipelinev1.PipelineR
 	// properly archived into the API server.
 	dyn.IsReadyForDeletionFunc = r.areAllUnderlyingTaskRunsReadyForDeletion
 	dyn.AfterDeletion = func(ctx context.Context, object results.Object) error {
-		pr := object.(*pipelinev1.PipelineRun)
-		return r.metrics.DurationAndCountDeleted(ctx, r.configStore.Load().Metrics, pr)
+		pr, ok := object.(*pipelinev1.PipelineRun)
+		if !ok {
+			return fmt.Errorf("expected PipelineRun, got %T", object)
+		}
+		return r.pipelineRunMetrics.DurationAndCountDeleted(ctx, r.configStore.Load().Metrics, pr)
+	}
+	dyn.AfterStorage = func(ctx context.Context, object results.Object, _ bool) error {
+		pr, ok := object.(*pipelinev1.PipelineRun)
+		if !ok {
+			return fmt.Errorf("expected PipelineRun, got %T", object)
+		}
+		return r.metrics.RecordStorageLatency(ctx, pr)
 	}
 
 	return dyn.Reconcile(logging.WithLogger(ctx, logger), pr)
@@ -146,6 +158,11 @@ func isMarkedAsReadyForDeletion(taskRun *pipelinev1.TaskRun) bool {
 func (r *Reconciler) FinalizeKind(ctx context.Context, pr *pipelinev1.PipelineRun) knativereconciler.Event {
 	// Reconcile the pipelinerun to ensure that it is stored in the database
 	rerr := r.ReconcileKind(ctx, pr)
+	if rerr != nil {
+		// Keep requeue semantics in finalize() while ensuring this reconcile error is always visible.
+		logging.FromContext(ctx).Warnw("reconcile during pipelinerun finalization returned error",
+			zap.Error(rerr))
+	}
 
 	return r.finalize(ctx, pr, rerr)
 }
@@ -187,6 +204,9 @@ func (r *Reconciler) finalize(ctx context.Context, pr *pipelinev1.PipelineRun, r
 			if !ok {
 				logging.FromContext(ctx).Errorf("pipelinerun not stored: %s/%s, uid: %s,",
 					pr.Namespace, pr.Name, pr.UID)
+				if err := metrics.CountRunNotStored(ctx, pr.Namespace, "PipelineRun"); err != nil {
+					logging.FromContext(ctx).Errorf("error counting PipelineRun as not stored: %w", err)
+				}
 			}
 			return nil // Proceed with deletion
 		}
@@ -204,7 +224,10 @@ func (r *Reconciler) finalize(ctx context.Context, pr *pipelinev1.PipelineRun, r
 			pr.Namespace, pr.Name, now.String(), storeDeadline.String())
 		return controller.NewRequeueAfter(r.cfg.FinalizerRequeueInterval)
 	}
-	if rerr != nil || stored != "true" {
+	if rerr != nil {
+		return controller.NewRequeueAfter(r.cfg.FinalizerRequeueInterval)
+	}
+	if stored != "true" {
 		logging.FromContext(ctx).Debugf("stored annotation is not true on pipelinerun %s/%s, now: %s, storeDeadline: %s",
 			pr.Namespace, pr.Name, now.String(), storeDeadline.String())
 		return controller.NewRequeueAfter(r.cfg.FinalizerRequeueInterval)
